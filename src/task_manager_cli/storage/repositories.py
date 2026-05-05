@@ -249,6 +249,32 @@ class Repository:
         ).fetchone()
         return int(row["id"]) if row else None
 
+    def resolve_record_id(self, ref: str) -> Optional[int]:
+        if ref.isdigit():
+            row = self.conn.execute("SELECT id FROM source_records WHERE id=?", (int(ref),)).fetchone()
+            if row:
+                return int(row["id"])
+        row = self.conn.execute(
+            "SELECT id FROM source_records WHERE source_item_id=? ORDER BY id LIMIT 1",
+            (ref,),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
+    def definition_record_for_object(self, object_id: int) -> Optional[Dict[str, Any]]:
+        row = self.conn.execute(
+            """
+            SELECT r.*, l.file_path, l.page_name, l.journal_date, l.block_uuid,
+                   l.line_start, l.line_end, l.block_path_json
+            FROM object_record_links orl
+            JOIN source_records r ON r.id=orl.record_id
+            LEFT JOIN locations l ON l.id=r.location_id
+            WHERE orl.object_id=? AND orl.role='definition'
+            ORDER BY r.id LIMIT 1
+            """,
+            (object_id,),
+        ).fetchone()
+        return _load(row) if row else None
+
     def records_for_object(self, object_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         rows = self.conn.execute(
             """
@@ -291,12 +317,15 @@ class Repository:
         )
         return int(cur.lastrowid)
 
-    def list_annotations(self, target_object_id: Optional[int] = None, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_annotations(self, target_object_id: Optional[int] = None, target_record_id: Optional[int] = None, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         where = []
         params: List[Any] = []
         if target_object_id is not None:
             where.append("a.target_object_id=?")
             params.append(target_object_id)
+        if target_record_id is not None:
+            where.append("a.target_record_id=?")
+            params.append(target_record_id)
         if status:
             where.append("a.status=?")
             params.append(status)
@@ -306,6 +335,117 @@ class Repository:
         sql += " ORDER BY a.created_at DESC, a.id DESC LIMIT ?"
         params.append(limit)
         return [_load(row) for row in self.conn.execute(sql, params).fetchall()]
+
+    def object_activity(self, object_id: int) -> Dict[str, Any]:
+        row = self.conn.execute(
+            """
+            SELECT
+              COUNT(DISTINCT CASE WHEN orl.role != 'definition' THEN orl.record_id END) AS child_record_count,
+              COUNT(DISTINCT CASE WHEN orl.role = 'journal_exposure' THEN orl.record_id END) AS journal_exposure_count,
+              MAX(COALESCE(r.source_updated_at, r.observed_at)) AS record_activity_at
+            FROM object_record_links orl
+            JOIN source_records r ON r.id=orl.record_id
+            WHERE orl.object_id=?
+            """,
+            (object_id,),
+        ).fetchone()
+        annotation_row = self.conn.execute(
+            "SELECT COUNT(*) AS annotation_count, MAX(updated_at) AS annotation_activity_at FROM annotations WHERE target_object_id=?",
+            (object_id,),
+        ).fetchone()
+        recent_exposures = self.conn.execute(
+            """
+            SELECT r.id, r.raw_text, l.file_path, l.page_name, l.journal_date, l.line_start
+            FROM object_record_links orl
+            JOIN source_records r ON r.id=orl.record_id
+            LEFT JOIN locations l ON l.id=r.location_id
+            WHERE orl.object_id=? AND orl.role='journal_exposure'
+            ORDER BY l.journal_date DESC, l.line_start DESC
+            LIMIT 5
+            """,
+            (object_id,),
+        ).fetchall()
+        activity_sources = []
+        if row and row["record_activity_at"]:
+            activity_sources.append("records")
+        if row and row["journal_exposure_count"]:
+            activity_sources.append("journal_exposure")
+        if annotation_row and annotation_row["annotation_count"]:
+            activity_sources.append("annotation")
+        candidates = [
+            row["record_activity_at"] if row else None,
+            annotation_row["annotation_activity_at"] if annotation_row else None,
+        ]
+        return {
+            "last_activity_at": max([item for item in candidates if item], default=None),
+            "activity_sources": activity_sources,
+            "recent_exposures": [_load(item) for item in recent_exposures],
+            "journal_exposure_count": int(row["journal_exposure_count"] or 0) if row else 0,
+            "child_record_count": int(row["child_record_count"] or 0) if row else 0,
+            "annotation_count": int(annotation_row["annotation_count"] or 0) if annotation_row else 0,
+        }
+
+    def quality_metrics(self) -> Dict[str, int]:
+        stats = self.stats()
+        relation_count = int(self.conn.execute("SELECT COUNT(*) AS c FROM relations").fetchone()["c"])
+        unlinked = int(
+            self.conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM objects o
+                WHERE o.object_type IN ('task', 'idea')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM relations r
+                    WHERE r.from_object_id=o.id AND r.relation_type='belongs_to'
+                  )
+                """
+            ).fetchone()["c"]
+        )
+        suspicious = int(
+            self.conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM objects o
+                WHERE o.object_type='idea'
+                  AND (
+                    o.title LIKE ']%' OR LENGTH(TRIM(o.title)) < 2 OR
+                    o.metadata_json LIKE '%suspicious_idea_reason%'
+                  )
+                """
+            ).fetchone()["c"]
+        )
+        mismatches = int(
+            self.conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM objects o
+                JOIN locations cl ON cl.id=o.canonical_location_id
+                JOIN object_record_links orl ON orl.object_id=o.id AND orl.role='definition'
+                JOIN source_records r ON r.id=orl.record_id
+                JOIN locations rl ON rl.id=r.location_id
+                WHERE COALESCE(cl.file_path, '') != COALESCE(rl.file_path, '')
+                   OR COALESCE(cl.line_start, -1) != COALESCE(rl.line_start, -1)
+                   OR COALESCE(cl.source_item_id, '') != COALESCE(rl.source_item_id, '')
+                """
+            ).fetchone()["c"]
+        )
+        missing_definition = int(
+            self.conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM objects o
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM object_record_links orl
+                  WHERE orl.object_id=o.id AND orl.role='definition'
+                )
+                """
+            ).fetchone()["c"]
+        )
+        return {
+            **stats,
+            "relations": relation_count,
+            "unlinked_tasks_ideas": unlinked,
+            "suspicious_ideas": suspicious,
+            "source_location_mismatches": mismatches,
+            "missing_definition_records": missing_definition,
+        }
 
     def update_annotation_status(self, annotation_id: int, status: str) -> bool:
         cur = self.conn.execute(

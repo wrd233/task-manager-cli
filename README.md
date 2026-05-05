@@ -3,6 +3,7 @@
 本项目是一个“本地行动对象索引器 + 上下文查询接口 + Agent 批注存储层”。它从 Logseq 等本地记录系统中只读抽取 Project / Task / Idea / Record / Location / Relation，并把 Agent 或人的批注写入自己的 SQLite 数据库。
 
 它不是普通 TODO 工具：CLI 不判断今天该做什么，不做最终优先级排序，也不自动修改 Logseq。
+外部 Agent 负责基于 CLI 输出做判断；Agent 的批注和建议默认写入 CLI 内部 SQLite，不写回 Logseq。
 
 ## 安装
 
@@ -61,8 +62,20 @@ Agent 上下文：
 
 ```bash
 tm agent context --type project --limit 10 --format json
+tm agent today-context --days 14 --format markdown
+tm agent today-context --days 14 --format json
+tm agent project-context 项目-韩国旅行 --format markdown
+tm agent inbox-context --days 30 --format json
 tm agent task 12 --format json
 tm agent ideas --limit 20 --format markdown
+```
+
+轻量报告：
+
+```bash
+tm report active-projects
+tm report recent-unresolved-tasks --days 14
+tm report extraction-quality
 ```
 
 批注只写入 CLI 内部数据库：

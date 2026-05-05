@@ -23,11 +23,11 @@ class QueryService:
             raise NotFoundError(f"Object not found: {ref}")
         return obj
 
-    def object_context(self, ref: str, redact: bool = True, record_limit: int = 80) -> Dict[str, Any]:
+    def object_context(self, ref: str, redact: bool = True, record_limit: int = 80, include_annotations: bool = True) -> Dict[str, Any]:
         object_id = self.repo.resolve_object_id(ref)
         if object_id is None:
             raise NotFoundError(f"Object not found: {ref}")
-        return self.builder.build_object_context(object_id, redact=redact, record_limit=record_limit)
+        return self.builder.build_object_context(object_id, redact=redact, record_limit=record_limit, include_annotations=include_annotations)
 
-    def agent_context(self, object_type: Optional[str] = None, limit: int = 20, redact: bool = True) -> Dict[str, Any]:
-        return self.builder.build_agent_context(object_type=object_type, limit=limit, redact=redact)
+    def agent_context(self, object_type: Optional[str] = None, limit: int = 20, redact: bool = True, include_annotations: bool = True) -> Dict[str, Any]:
+        return self.builder.build_agent_context(object_type=object_type, limit=limit, redact=redact, include_annotations=include_annotations)

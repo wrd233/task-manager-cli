@@ -21,7 +21,7 @@ PROJECT_MARKERS = [
 PROJECT_PREFIXES = ("项目-", "任务-", "学习-", "课程-", "阶段-")
 TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE)\b\s*(.*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
-IDEA_RE = re.compile(r"(?:\*\*)?\[(想法|随想)\](?:\*\*)?\s*(.*)")
+IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
 BLOCK_REF_RE = re.compile(r"\(\(([0-9a-fA-F-]{8,})\)\)")
 EMBED_RE = re.compile(r"\{\{embed\s+\(\(([0-9a-fA-F-]{8,})\)\)\}\}")
 PAGE_REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -76,13 +76,45 @@ def parse_priority(text: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def is_valid_idea_title(title: str) -> bool:
+    cleaned = normalize_text(title).strip(" *:：-—_`")
+    if len(cleaned) < 2:
+        return False
+    if cleaned.startswith("]") or cleaned in {"]", "[", "]]"}:
+        return False
+    if re.fullmatch(r"[\]\[\)\(【】\s.,，。:：;；!?！？#]+", cleaned):
+        return False
+    if re.fullmatch(r"\[\[[^\]]+\]\]", cleaned):
+        return False
+    return True
+
+
 def parse_idea(raw: str) -> Optional[str]:
     text = strip_bullet(raw)
-    match = IDEA_RE.search(text)
+    match = IDEA_RE.match(text)
     if not match:
         return None
-    title = match.group(2).strip() or text
-    return normalize_text(title.replace("**", ""))
+    title = normalize_text(match.group(2).replace("**", ""))
+    return title if is_valid_idea_title(title) else None
+
+
+def idea_marker(raw: str) -> Optional[str]:
+    text = strip_bullet(raw)
+    match = IDEA_RE.match(text)
+    return match.group(1) if match else None
+
+
+def suspicious_idea_reason(raw: str) -> Optional[str]:
+    text = strip_bullet(raw)
+    if re.search(r"\[\[(想法|随想)\]\]", text):
+        return "wiki_link_marker_only"
+    loose = re.search(r"(?:\*\*)?\[(想法|随想)\](?:\*\*)?", text)
+    if loose and not IDEA_RE.match(text):
+        return "malformed_or_embedded_marker"
+    match = IDEA_RE.match(text)
+    if match and not is_valid_idea_title(match.group(2)):
+        return "invalid_or_empty_title"
+    return None
 
 
 def block_refs(text: str) -> List[str]:
@@ -131,7 +163,7 @@ def project_confidence(page_name: str, page_props: Dict[str, str], all_text: str
 
 def role_for_child(text: str) -> str:
     stripped = strip_bullet(text)
-    if "[想法]" in stripped or "[随想]" in stripped:
+    if parse_idea(text):
         return "idea_note"
     if "[反思]" in stripped:
         return "reflection"

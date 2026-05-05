@@ -9,21 +9,33 @@ class AnnotationService:
     def __init__(self, conn):
         self.repo = Repository(conn)
 
-    def add(self, target_object_ref: Optional[str], content: str, author: str = "agent", annotation_type: str = "comment") -> int:
+    def add(self, target_object_ref: Optional[str], content: str, author: str = "agent", annotation_type: str = "comment", target_record_ref: Optional[str] = None) -> int:
         object_id = None
+        record_id = None
         if target_object_ref:
             object_id = self.repo.resolve_object_id(target_object_ref)
             if object_id is None:
                 raise NotFoundError(f"Target object not found: {target_object_ref}")
-        return self.repo.add_annotation(object_id, None, author, annotation_type, content)
+        if target_record_ref:
+            record_id = self.repo.resolve_record_id(target_record_ref)
+            if record_id is None:
+                raise NotFoundError(f"Target record not found: {target_record_ref}")
+        if object_id is None and record_id is None:
+            raise ValueError("Annotation requires an object or record target.")
+        return self.repo.add_annotation(object_id, record_id, author, annotation_type, content)
 
-    def list(self, target_object_ref: Optional[str] = None, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def list(self, target_object_ref: Optional[str] = None, status: Optional[str] = None, limit: int = 50, target_record_ref: Optional[str] = None) -> List[Dict[str, Any]]:
         object_id = None
+        record_id = None
         if target_object_ref:
             object_id = self.repo.resolve_object_id(target_object_ref)
             if object_id is None:
                 raise NotFoundError(f"Target object not found: {target_object_ref}")
-        return self.repo.list_annotations(target_object_id=object_id, status=status, limit=limit)
+        if target_record_ref:
+            record_id = self.repo.resolve_record_id(target_record_ref)
+            if record_id is None:
+                raise NotFoundError(f"Target record not found: {target_record_ref}")
+        return self.repo.list_annotations(target_object_id=object_id, target_record_id=record_id, status=status, limit=limit)
 
     def update_status(self, annotation_id: int, status: str) -> bool:
         if status not in {item.value for item in AnnotationStatus}:

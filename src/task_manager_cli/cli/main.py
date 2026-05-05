@@ -13,6 +13,7 @@ from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManager
 from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
+from task_manager_cli.query.agent_views import AgentViewService
 from task_manager_cli.query.exporter import SnapshotExporter
 from task_manager_cli.query.service import QueryService
 from task_manager_cli.storage.database import connect, init_db
@@ -104,6 +105,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--format", choices=["json", "markdown"], default="json")
     p.add_argument("--no-redact", action="store_true")
     p.set_defaults(handler=cmd_agent_context)
+    p = agent_sub.add_parser("today-context", help="Export recent evidence for an external agent deciding what to inspect today.")
+    p.add_argument("--days", type=int, default=14)
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.add_argument("--include-annotations", dest="include_annotations", action="store_true", default=True)
+    p.add_argument("--no-annotations", dest="include_annotations", action="store_false")
+    p.add_argument("--redact", dest="redact", action="store_true", default=True)
+    p.add_argument("--no-redact", dest="redact", action="store_false")
+    p.set_defaults(handler=cmd_agent_today_context)
+    p = agent_sub.add_parser("project-context", help="Export one project context for external agent diagnosis.")
+    p.add_argument("project")
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--limit", type=int, default=80)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.add_argument("--include-annotations", dest="include_annotations", action="store_true", default=True)
+    p.add_argument("--no-annotations", dest="include_annotations", action="store_false")
+    p.add_argument("--redact", dest="redact", action="store_true", default=True)
+    p.add_argument("--no-redact", dest="redact", action="store_false")
+    p.set_defaults(handler=cmd_agent_project_context)
+    p = agent_sub.add_parser("inbox-context", help="Export idea inbox context for external agent triage.")
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--limit", type=int, default=80)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.add_argument("--include-annotations", dest="include_annotations", action="store_true", default=True)
+    p.add_argument("--no-annotations", dest="include_annotations", action="store_false")
+    p.add_argument("--redact", dest="redact", action="store_true", default=True)
+    p.add_argument("--no-redact", dest="redact", action="store_false")
+    p.set_defaults(handler=cmd_agent_inbox_context)
     for name, object_type in (("project", "project"), ("task", "task"), ("ideas", "idea")):
         p = agent_sub.add_parser(name, help=f"Export agent context for {name}.")
         p.add_argument("object", nargs="?" if name == "ideas" else None)
@@ -115,13 +144,14 @@ def build_parser() -> argparse.ArgumentParser:
     ann = sub.add_parser("annotation", help="Store and query annotations.")
     ann_sub = ann.add_subparsers(dest="annotation_command")
     p = ann_sub.add_parser("add", help="Add an annotation to an object.")
-    p.add_argument("object")
-    p.add_argument("content")
+    p.add_argument("parts", nargs="+", help="Either <object> <content> or <content> when --record is used.")
+    p.add_argument("--record", help="Target record id or source_item_id.")
     p.add_argument("--author", default="agent")
     p.add_argument("--type", default="comment")
     p.set_defaults(handler=cmd_annotation_add)
     p = ann_sub.add_parser("list", help="List annotations.")
     p.add_argument("--object")
+    p.add_argument("--record")
     p.add_argument("--status")
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--format", choices=["json", "table"], default="table")
@@ -130,6 +160,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("annotation_id", type=int)
     p.add_argument("status", choices=["open", "accepted", "rejected", "archived"])
     p.set_defaults(handler=cmd_annotation_status)
+
+    report = sub.add_parser("report", help="Human-readable lightweight reports.")
+    report_sub = report.add_subparsers(dest="report_command")
+    p = report_sub.add_parser("active-projects", help="Show lightweight active project status.")
+    p.add_argument("--limit", type=int, default=100)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_active_projects)
+    p = report_sub.add_parser("recent-unresolved-tasks", help="Show recent unresolved tasks.")
+    p.add_argument("--days", type=int, default=14)
+    p.add_argument("--limit", type=int, default=100)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_recent_unresolved_tasks)
+    p = report_sub.add_parser("extraction-quality", help="Show extraction quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_extraction_quality)
 
     debug = sub.add_parser("debug", help="Debug Logseq parsing and storage.")
     debug_sub = debug.add_subparsers(dest="debug_command")
@@ -318,6 +363,35 @@ def cmd_agent_context(args) -> str:
     return format_output(data, args.format)
 
 
+def _agent_view_service():
+    settings = _settings()
+    return AgentViewService(_conn(settings), sensitive_patterns=settings.sensitive_patterns)
+
+
+def _format_agent_view(data, fmt: str) -> str:
+    if fmt == "json":
+        return to_json(data)
+    return _agent_view_service().markdown(data)
+
+
+def cmd_agent_today_context(args) -> str:
+    service = _agent_view_service()
+    data = service.today_context(days=args.days, limit=args.limit, redact=args.redact, include_annotations=args.include_annotations)
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_agent_project_context(args) -> str:
+    service = _agent_view_service()
+    data = service.project_context(args.project, days=args.days, limit=args.limit, redact=args.redact, include_annotations=args.include_annotations)
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_agent_inbox_context(args) -> str:
+    service = _agent_view_service()
+    data = service.inbox_context(days=args.days, limit=args.limit, redact=args.redact, include_annotations=args.include_annotations)
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
 def cmd_agent_specific(args) -> str:
     service = _service()
     if getattr(args, "object", None):
@@ -330,13 +404,21 @@ def cmd_agent_specific(args) -> str:
 def cmd_annotation_add(args) -> str:
     settings = _settings()
     conn = _conn(settings)
-    ann_id = AnnotationService(conn).add(args.object, args.content, author=args.author, annotation_type=args.type)
+    if args.record:
+        target_object = None
+        content = " ".join(args.parts)
+    else:
+        if len(args.parts) < 2:
+            raise ValueError("annotation add requires <object> <content>, or <content> with --record.")
+        target_object = args.parts[0]
+        content = " ".join(args.parts[1:])
+    ann_id = AnnotationService(conn).add(target_object, content, author=args.author, annotation_type=args.type, target_record_ref=args.record)
     conn.commit()
     return to_json({"annotation_id": ann_id})
 
 
 def cmd_annotation_list(args) -> str:
-    data = AnnotationService(_conn()).list(target_object_ref=args.object, status=args.status, limit=args.limit)
+    data = AnnotationService(_conn()).list(target_object_ref=args.object, target_record_ref=args.record, status=args.status, limit=args.limit)
     return format_output(data, args.format, table_kind="annotations")
 
 
@@ -381,6 +463,24 @@ def cmd_debug_refs(args) -> str:
 
 def cmd_debug_stats(args) -> str:
     return to_json(Repository(_conn()).stats())
+
+
+def cmd_report_active_projects(args) -> str:
+    service = _agent_view_service()
+    data = service.active_projects_report(limit=args.limit)
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_report_recent_unresolved_tasks(args) -> str:
+    service = _agent_view_service()
+    data = service.recent_unresolved_tasks_report(days=args.days, limit=args.limit)
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_report_extraction_quality(args) -> str:
+    service = _agent_view_service()
+    data = service.extraction_quality_report()
+    return to_json(data) if args.format == "json" else service.markdown(data)
 
 
 def cmd_export_snapshot(args) -> str:

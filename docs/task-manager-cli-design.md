@@ -58,6 +58,16 @@ Logseq 是第一阶段主要来源。未来 Flomo、手动 inbox 或其他 Markd
 
 Agent context 默认启用脱敏。脱敏来源包括默认正则、用户配置正则、`private:: true` 和 `[敏感]` / `**[敏感]**` 标记。原始 Logseq 文件只读。
 
+## Agent-oriented Context Views
+
+除 full export 外，系统提供面向 Agent 的薄上下文视图：
+
+- `today-context`：最近 journal 暴露的任务、想法、活跃项目和活动性字段。
+- `project-context`：单项目诊断上下文、任务统计、relations、journal exposures 和事实性 signals。
+- `inbox-context`：未关联 idea、可疑 idea 和候选关联。
+
+这些视图只提供证据和信号，不做最终优先级判断。
+
 ## 受限写入能力
 
 写入能力是配置 gated 的 append-only proposal/apply 机制。

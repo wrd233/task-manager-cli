@@ -23,3 +23,19 @@ def test_annotation_add_list_update(tmp_path):
     items = service.list(str(task["id"]))
     assert items[0]["status"] == "accepted"
     assert "只读边界" in items[0]["content"]
+
+
+def test_annotation_can_target_record_and_context_can_omit_annotations(tmp_path):
+    conn = connect(tmp_path / "tm.sqlite3")
+    init_db(conn)
+    repo = Repository(conn)
+    Merger(repo).ingest(LogseqAdapter(FIXTURE).scan())
+    conn.commit()
+    task = next(obj for obj in repo.list_objects("task", limit=20) if obj["title"] == "搭建索引器")
+    record = repo.definition_record_for_object(int(task["id"]))
+    service = AnnotationService(conn)
+    ann_id = service.add(None, "record-level note", author="agent", annotation_type="comment", target_record_ref=str(record["id"]))
+    items = service.list(target_record_ref=str(record["id"]))
+    assert items[0]["id"] == ann_id
+    context = __import__("task_manager_cli.query.service", fromlist=["QueryService"]).QueryService(conn).object_context(str(task["id"]), include_annotations=False)
+    assert context["annotations"] == []

@@ -4,7 +4,7 @@ from typing import Iterable, List, Tuple
 
 
 DEFAULT_PATTERNS = [
-    r"(?i)(api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*['\"]?[^'\"\s]+",
+    r"(?i)(api[_-]?key|token|secret|password|passwd|pwd|credential|cookie|session)\s*[:=]\s*['\"]?[^'\"\s]+",
     r"(?i)(密码|口令|密钥|令牌)\s*[:：=]\s*\S+",
     r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
     r"\b[A-Za-z0-9_\-]{24,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\b",

@@ -11,8 +11,10 @@ from task_manager_cli.adapters.logseq.extractors import (
     normalize_text,
     page_name_from_path,
     page_refs,
+    idea_marker,
     project_confidence,
     role_for_child,
+    suspicious_idea_reason,
 )
 from task_manager_cli.adapters.logseq.parser import LogseqBlock, ParsedLogseqFile, parse_logseq_file
 from task_manager_cli.core.enums import ObjectType, RecordType, RelationType
@@ -29,21 +31,19 @@ class LogseqAdapter:
     def __init__(self, graph_path: Path, ignored_embed_uuids: Optional[List[str]] = None):
         self.graph_path = Path(graph_path).expanduser()
         self.ignored_embed_uuids: Set[str] = set(ignored_embed_uuids or [])
-        self._block_source_ids: Dict[int, str] = {}
+        self._project_page_sources: Dict[str, str] = {}
 
     def scan(self, recent_journals: Optional[int] = None) -> AdapterResult:
         result = AdapterResult()
         for path in self._iter_markdown_files(recent_journals=recent_journals):
             page_name = page_name_from_path(path)
             parsed = parse_logseq_file(path, page_name)
-            self._index_block_ids(parsed)
             self._extract_file(parsed, result)
             result.files_scanned += 1
         return result
 
     def parse_file(self, path: Path) -> AdapterResult:
         parsed = parse_logseq_file(Path(path), page_name_from_path(Path(path)))
-        self._index_block_ids(parsed)
         result = AdapterResult(files_scanned=1)
         self._extract_file(parsed, result)
         return result
@@ -68,20 +68,10 @@ class LogseqAdapter:
         return f"page:{self._relative(parsed.file_path)}"
 
     def _block_source_id(self, block: LogseqBlock) -> str:
-        found = self._block_source_ids.get(id(block))
-        if found:
-            return found
         rel = self._relative(block.file_path)
         if block.uuid:
-            source_id = f"block:{block.uuid}"
-        else:
-            source_id = f"block:{rel}:{block.line_number}:{content_hash(block.raw)}"
-        self._block_source_ids[id(block)] = source_id
-        return source_id
-
-    def _index_block_ids(self, parsed: ParsedLogseqFile) -> None:
-        for block in parsed.blocks:
-            self._block_source_ids[id(block)] = self._block_source_id(block)
+            return f"block:{block.uuid}"
+        return f"block:{rel}:{block.line_number}:{content_hash(block.raw)}"
 
     def _location_for_page(self, parsed: ParsedLogseqFile) -> Location:
         source_id = self._page_source_id(parsed)
@@ -140,8 +130,12 @@ class LogseqAdapter:
         task = block.task
         if task:
             metadata["task_status"] = task[0]
-        if block.idea_title:
-            metadata["idea_marker"] = True
+            if block.idea_title:
+                metadata["idea_marker"] = True
+                metadata["idea_marker_type"] = idea_marker(block.raw)
+            suspicious = suspicious_idea_reason(block.raw)
+            if suspicious:
+                metadata["suspicious_idea_reason"] = suspicious
         return SourceRecord(
             source_type=self.source_type,
             source_item_id=self._block_source_id(block),
@@ -191,6 +185,7 @@ class LogseqAdapter:
             )
             result.objects.append(project)
             result.links.append(ObjectRecordLink(page_project_source_id, page_record.source_item_id, "definition"))
+            self._project_page_sources[parsed.page_name] = page_project_source_id
 
         for block in parsed.blocks:
             result.records.append(self._record_for_block(block))
@@ -200,6 +195,7 @@ class LogseqAdapter:
                         result.warnings.append(CandidateWarning(self._block_source_id(block), f"Ignored structural embed {uuid}", "info"))
                 continue
             if block.is_pure_reference:
+                self._extract_journal_exposure(block, parsed, result)
                 continue
 
             self._extract_task(block, parsed, result, page_project_source_id)
@@ -227,6 +223,7 @@ class LogseqAdapter:
                 "section_markers": block.section_markers(),
                 "block_refs": block.block_refs,
                 "embeds": block.embeds,
+                "page_refs": block.page_refs,
                 "extraction_rule": "logseq_task_marker",
             },
         )
@@ -238,6 +235,8 @@ class LogseqAdapter:
             result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), role_for_child(child.raw)))
         if page_project_source_id:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.9, {"rule": "same_project_page"}))
+        else:
+            self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="journal_page_ref")
 
     def _extract_idea(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
         title = block.idea_title
@@ -257,6 +256,10 @@ class LogseqAdapter:
             metadata={
                 "page_name": parsed.page_name,
                 "section_markers": block.section_markers(),
+                "idea_marker": idea_marker(block.raw),
+                "original_raw_text": block.raw,
+                "normalized_title": title,
+                "page_refs": block.page_refs,
                 "extraction_rule": "logseq_idea_marker",
             },
         )
@@ -274,6 +277,27 @@ class LogseqAdapter:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.85, {"rule": "idea_under_brainstorm"}))
         elif page_project_source_id:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.65, {"rule": "same_project_page"}))
+        else:
+            self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="journal_page_ref")
+
+    def _add_page_ref_project_relations(self, block: LogseqBlock, source_id: str, result: AdapterResult, confidence: float, rule: str) -> None:
+        for ref in block.page_refs:
+            project_source_id = self._project_page_sources.get(ref)
+            if project_source_id:
+                result.relations.append(Relation(source_id, project_source_id, RelationType.BELONGS_TO.value, confidence, {"rule": rule, "page_ref": ref}))
+
+    def _extract_journal_exposure(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult) -> None:
+        if not journal_date_from_path(parsed.file_path):
+            return
+        for ref in block.block_refs:
+            result.links.append(
+                ObjectRecordLink(
+                    object_source_item_id=f"block:{ref}",
+                    record_source_item_id=self._block_source_id(block),
+                    role="journal_exposure",
+                    metadata={"journal_date": journal_date_from_path(parsed.file_path), "rule": "pure_block_reference"},
+                )
+            )
 
     def _nearest_task_ancestor(self, block: LogseqBlock) -> Optional[LogseqBlock]:
         for ancestor in reversed(block.ancestors()):

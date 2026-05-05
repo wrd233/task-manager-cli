@@ -73,7 +73,7 @@ def test_apply_refuses_when_file_changed_after_proposal(tmp_path):
 
 def test_append_section_and_create_page_proposals(tmp_path):
     service, repo, graph, conn = loaded_write_service(tmp_path, mode="guarded")
-    project = repo.list_objects("project", limit=1)[0]
+    project = next(obj for obj in repo.list_objects("project", limit=50) if obj["title"] == "项目-Alpha")
     section_id = service.create_append_page_section_proposal("[Agent反思] 保持 append-only", "[反思]", target_object_ref=str(project["id"]))
     page_id = service.create_page_proposal("Agent Inbox", "[Agent建议] 新页面")
     service.apply(section_id, confirmed=True)
