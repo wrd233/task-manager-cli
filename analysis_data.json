@@ -1,0 +1,1020 @@
+{
+  "journal_stats": {
+    "2026-04-30": {
+      "TODO": 3,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 1
+    },
+    "2026-04-28": {
+      "TODO": 1,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 1
+    },
+    "2026-04-27": {
+      "TODO": 1,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 1
+    },
+    "2026-04-24": {
+      "TODO": 6,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 1
+    },
+    "2026-04-23": {
+      "TODO": 9,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 2
+    },
+    "2026-04-22": {
+      "TODO": 9,
+      "DOING": 0,
+      "DONE": 2,
+      "想法": 0
+    },
+    "2026-04-20": {
+      "TODO": 5,
+      "DOING": 0,
+      "DONE": 2,
+      "想法": 0
+    },
+    "2026-04-16": {
+      "TODO": 15,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 0
+    },
+    "2026-04-15": {
+      "TODO": 2,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 0
+    },
+    "2026-04-14": {
+      "TODO": 5,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 0
+    },
+    "2026-04-13": {
+      "TODO": 4,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 1
+    },
+    "2026-04-10": {
+      "TODO": 4,
+      "DOING": 0,
+      "DONE": 4,
+      "想法": 0
+    },
+    "2026-04-09": {
+      "TODO": 8,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 2
+    },
+    "2026-04-08": {
+      "TODO": 1,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 0
+    },
+    "2026-04-07": {
+      "TODO": 6,
+      "DOING": 0,
+      "DONE": 2,
+      "想法": 1
+    },
+    "2026-04-03": {
+      "TODO": 4,
+      "DOING": 0,
+      "DONE": 0,
+      "想法": 4
+    },
+    "2026-04-02": {
+      "TODO": 2,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 8
+    },
+    "2026-04-01": {
+      "TODO": 5,
+      "DOING": 0,
+      "DONE": 2,
+      "想法": 2
+    },
+    "2026-03-31": {
+      "TODO": 4,
+      "DOING": 0,
+      "DONE": 5,
+      "想法": 0
+    },
+    "2026-03-30": {
+      "TODO": 2,
+      "DOING": 0,
+      "DONE": 10,
+      "想法": 1
+    },
+    "2026-03-27": {
+      "TODO": 4,
+      "DOING": 0,
+      "DONE": 1,
+      "想法": 0
+    },
+    "2026-03-26": {
+      "TODO": 3,
+      "DOING": 0,
+      "DONE": 4,
+      "想法": 1
+    },
+    "2026-03-25": {
+      "TODO": 6,
+      "DOING": 0,
+      "DONE": 5,
+      "想法": 2
+    },
+    "2026-03-24": {
+      "TODO": 3,
+      "DOING": 0,
+      "DONE": 5,
+      "想法": 1
+    }
+  },
+  "journal_todo_count": 112,
+  "journal_doing_count": 0,
+  "journal_done_count": 49,
+  "journal_idea_count": 29,
+  "page_todo_count": 789,
+  "page_doing_count": 7,
+  "page_done_count": 353,
+  "page_idea_count": 559,
+  "high_conf_project_count": 67,
+  "med_conf_project_count": 30,
+  "high_conf_projects": [
+    {
+      "name": "学习-redhat",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-redhat.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 3,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-Pravega",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-Pravega.md",
+      "todo": 3,
+      "doing": 1,
+      "done": 2,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "任务-大屏",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/任务-大屏.md",
+      "todo": 12,
+      "doing": 2,
+      "done": 23,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-ECE560",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-ECE560.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-海丝",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-海丝.md",
+      "todo": 3,
+      "doing": 1,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习chatGPT的prompt工程",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习chatGPT的prompt工程.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-Java",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-Java.md",
+      "todo": 10,
+      "doing": 0,
+      "done": 3,
+      "ideas": 12,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-ECE570",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-ECE570.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习制定出行计划",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习制定出行计划.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-Miss Semester",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-Miss Semester.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-个人简历",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-个人简历.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "日常英语学习",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/日常英语学习.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "建立情绪和精力系统",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/建立情绪和精力系统.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "日常健身与饮食",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/日常健身与饮食.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-ECE540",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-ECE540.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-CSAPP",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-CSAPP.md",
+      "todo": 8,
+      "doing": 0,
+      "done": 8,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-CS基本技能的学习",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-CS基本技能的学习.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "任务-梅北",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/任务-梅北.md",
+      "todo": 6,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "托福作文稳定在27分",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/托福作文稳定在27分.md",
+      "todo": 6,
+      "doing": 0,
+      "done": 1,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-DELL",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-DELL.md",
+      "todo": 7,
+      "doing": 0,
+      "done": 8,
+      "ideas": 12,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "春招学习",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/春招学习.md",
+      "todo": 12,
+      "doing": 0,
+      "done": 10,
+      "ideas": 12,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "游戏-星露谷物语",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/游戏-星露谷物语.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "一年改变计划",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/一年改变计划.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "每日冥想",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/每日冥想.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-日语",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-日语.md",
+      "todo": 81,
+      "doing": 0,
+      "done": 3,
+      "ideas": 9,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-南大OS",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-南大OS.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 1,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-webserver改写",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-webserver改写.md",
+      "todo": 4,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "托福口语稳定在22分",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/托福口语稳定在22分.md",
+      "todo": 4,
+      "doing": 0,
+      "done": 3,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-完善人生系统",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-完善人生系统.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "Leetcode刷题",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/Leetcode刷题.md",
+      "todo": 19,
+      "doing": 0,
+      "done": 20,
+      "ideas": 16,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "建立个人信息源体系",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/建立个人信息源体系.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习“向上管理”",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习“向上管理”.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习“认知偏差”",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习“认知偏差”.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "RSS管理",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/RSS管理.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 0,
+      "ideas": 6,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "自学-CMU-15-445",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/自学-CMU-15-445.md",
+      "todo": 6,
+      "doing": 0,
+      "done": 3,
+      "ideas": 5,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "毕业设计",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/毕业设计.md",
+      "todo": 26,
+      "doing": 0,
+      "done": 24,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "日本旅行",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/日本旅行.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 3,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-Golang",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-Golang.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-Academic",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-Academic.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 1,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "尝试-n8n-Dify-logseq",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/尝试-n8n-Dify-logseq.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "实习准备",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/实习准备.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 5,
+      "ideas": 7,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "健身-减脂周期-25年5月",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/健身-减脂周期-25年5月.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-shell学习",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-shell学习.md",
+      "todo": 5,
+      "doing": 0,
+      "done": 3,
+      "ideas": 5,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "对抗拖延的方法论建立",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/对抗拖延的方法论建立.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-Redis",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-Redis.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 0,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-ECE650",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-ECE650.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-GeeRPC",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-GeeRPC.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-CS106L",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-CS106L.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-吉他",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-吉他.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 0,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "十公里跑进一小时",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/十公里跑进一小时.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "阶段-破壳计划",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/阶段-破壳计划.md",
+      "todo": 6,
+      "doing": 0,
+      "done": 10,
+      "ideas": 10,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-郑大项目",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-郑大项目.md",
+      "todo": 7,
+      "doing": 0,
+      "done": 9,
+      "ideas": 19,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-MySQL",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-MySQL.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 1,
+      "ideas": 3,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "托福阅读稳定在29分",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/托福阅读稳定在29分.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 1,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "托福听力稳定在27分",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/托福听力稳定在27分.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 3,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "旅游-日本旅游",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/旅游-日本旅游.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "建立“计划罗列”的工作流",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/建立“计划罗列”的工作流.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 1,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-南大PA",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-南大PA.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 3,
+      "ideas": 6,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-muduo(C++11)",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-muduo(C++11).md",
+      "todo": 14,
+      "doing": 0,
+      "done": 7,
+      "ideas": 3,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "建立日记系统",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/建立日记系统.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "课程-ECE651",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/课程-ECE651.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 3,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "项目-展厅讲解",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/项目-展厅讲解.md",
+      "todo": 5,
+      "doing": 0,
+      "done": 0,
+      "ideas": 1,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-C++",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-C++.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "秋招准备",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/秋招准备.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "困境处理-春招实习",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/困境处理-春招实习.md",
+      "todo": 2,
+      "doing": 0,
+      "done": 0,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "学习-算法理论",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/学习-算法理论.md",
+      "todo": 1,
+      "doing": 0,
+      "done": 0,
+      "ideas": 2,
+      "mtime": "2026-05-05"
+    },
+    {
+      "name": "创造-听云自动化报告撰写",
+      "path": "/Users/wangrundong/logseq/Logseq_File/pages/创造-听云自动化报告撰写.md",
+      "todo": 3,
+      "doing": 0,
+      "done": 1,
+      "ideas": 0,
+      "mtime": "2026-05-05"
+    }
+  ],
+  "todo_samples_journal": [
+    {
+      "content": "清理一下私有云上开的一堆虚拟机，然后把模板做一下，当前那个模板是需要安装网络的驱动的(在我的U盘里面)",
+      "page": "journal/2026_04_30.md",
+      "children": 0
+    },
+    {
+      "content": "建立一下海丝那边的台账",
+      "page": "journal/2026_04_30.md",
+      "children": 0
+    },
+    {
+      "content": "下午的时候把加班单签一下",
+      "page": "journal/2026_04_30.md",
+      "children": 0
+    },
+    {
+      "content": "先把虚拟机的派发好，然后整理一下当前海丝那边的状态",
+      "page": "journal/2026_04_28.md",
+      "children": 0
+    },
+    {
+      "content": "撰写周报",
+      "page": "journal/2026_04_27.md",
+      "children": 0
+    },
+    {
+      "content": "联通机房那边今天看看理一波线？然后罗老师的充电器？虚拟化平台是否通了？",
+      "page": "journal/2026_04_24.md",
+      "children": 0
+    },
+    {
+      "content": "检查一下zabbix中有两台机器的网络不通",
+      "page": "journal/2026_04_24.md",
+      "children": 0
+    },
+    {
+      "content": "周日上午的时候领导过去的方式问一下",
+      "page": "journal/2026_04_24.md",
+      "children": 0
+    },
+    {
+      "content": "短视频方案的撰写",
+      "page": "journal/2026_04_24.md",
+      "children": 0
+    },
+    {
+      "content": "周日去的时候记得拍一些照片过来，主要是拍摄的是领导开会时候的样子",
+      "page": "journal/2026_04_24.md",
+      "children": 0
+    }
+  ],
+  "todo_samples_page": [
+    {
+      "content": "<简述要做的事务> #项目清单",
+      "page": "课程-ECE551",
+      "children": 0
+    },
+    {
+      "content": "阅读 [[《All of Programming》]] 附录A #执行清单",
+      "page": "课程-ECE551",
+      "children": 0
+    },
+    {
+      "content": "完成到ready-to-deliver之前的操作，最终是到达ready-to-deliver",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "world里面的status需要找一下？",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "尝试启动world simulator，然后写一个简单的交互逻辑",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "尝试向上层提供稳定的Socket连接交互机制",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "前端搞一搞",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "[bug] arrive之后的发送的好像会有多个package",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "登录之后发送需要传递ups_account的请求，不要明文包含这些account信息，而是将jwt token包含在request当中。",
+      "page": "568-project",
+      "children": 0
+    },
+    {
+      "content": "添加redirecting",
+      "page": "568-project",
+      "children": 0
+    }
+  ],
+  "idea_samples": [
+    {
+      "content": "- [想法] 五一节的后面三天加个班，把之前的台账、笔记、经验之类的完全整理一下，并且制定之后积累发展的工作流(主要是能明确成果以及之后的发展，最好是能够形成skills)；然后几个自己想研究的项目也",
+      "page": "journal/2026_04_30.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 工作中遇到的问题记录一下，然后也记录一下得到的回答，整理成记忆卡片",
+      "page": "journal/2026_04_28.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 一些关键帧其实可以就用一张持续了几秒的图片",
+      "page": "journal/2026_04_27.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 我的想法是先撰写大纲，然后让大模型生成场景与分镜(自己调整下)，然后让大模型生成关键帧的描述(自己调整下，结合台词)，同步统一一些共用的场景和素材。然后逐步生成关键帧的素材(这里可能有依",
+      "page": "journal/2026_04_24.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 一些动作可以我来拍一下，然后上传给AI来做",
+      "page": "journal/2026_04_23.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 封面可以考虑使用那个以下犯上的手势",
+      "page": "journal/2026_04_23.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 在尝试建立报告撰写的skill，这里通过自然语言描述的可以和王惟贇老师一起建立一下，然后日常改进项目的时候也和对方的工程师进行联系",
+      "page": "journal/2026_04_13.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 之后可以先按照听云中导出的几张表格入手，按照一些启发性的方法进行筛选得到一批后选池，这个作为第一阶段的输出文件；之后codex等利用adapter进行这方面的深挖",
+      "page": "journal/2026_04_09.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 使用一套启发式的脚本处理下载得到的SQL等等的文件，然后得到一个初步的入口，之后codex等大模型会顺着这个入口进入深究其中关键路径，并且一边深入一边依靠语义理解能力扩充候选池",
+      "page": "journal/2026_04_09.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 明确一下需求，然后找一下原有的zabbix文档中的内容",
+      "page": "journal/2026_04_07.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 接入大模型的一个好处是也许可以通过不断的输入形成对项目的理解(业务？重要的链路？)，所以最好大模型的能够访问到听云中这些资产对象的全量映射",
+      "page": "journal/2026_04_03.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 先找个方式将这些好用的http请求都搞出来",
+      "page": "journal/2026_04_03.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 告警的来源有听云的也有zabbix的，当一个告警产生的时候，会自 动调用大模型进行检查",
+      "page": "journal/2026_04_03.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 现在我的想法是先做一些adapt，然后让大模型知道相关的细节，之后由它来指导我每一步调用什么，然后我把数据传进去，由大模型决定下一步调用什么或者还缺少什么adapt。在这种协同的过程中逐",
+      "page": "journal/2026_04_03.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 能否利用zabbix的API或者手动的文件导出，将相关的配置",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 仿照项目的多种文档的形式，为正在进行的各个项目安排不同区块的文档",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 在近期的采购文档撰写的时候我就发现存在跨文档跨表单系统之间的文档同步的需求，这个有没有一些工具或者工作流能够帮我自动发现和同步？",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 学习一下Harness engineering的思想",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 在和大模型交流的过程中，哪怕是一些头脑风暴，也尽量和大模型尽早确认一下想要得到的短期交付物是什么",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 和大模型聊天，然后让它帮忙输出格式良好的工作流说明",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 基于我的笔记做一款工作流或者历史事件方便查找的工具，可以通过自然语言来实现",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 赏味不足的可以看一下",
+      "page": "journal/2026_04_02.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 这个采购的整体流程学习整理一下",
+      "page": "journal/2026_04_01.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 在这个采购的流程中很多地方的内容需要同步，是否有一个中间的文档进行全局同步？然后文档也有固定的格式，每个部分填写什么搞一个skill？",
+      "page": "journal/2026_04_01.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] APM的地方更多地进行调研，形成相关的工作流，包括安装之后的配置以及日常的检测",
+      "page": "journal/2026_03_30.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 想想能否使用n8n拿到更好的上下文",
+      "page": "journal/2026_03_26.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 对专题内的考点有收集",
+      "page": "journal/2026_03_25.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 也许可以结合anki，每道题目对应一下anki的解题思路；然后每个专题都有大量的anki卡牌对应",
+      "page": "journal/2026_03_25.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法]",
+      "page": "journal/2026_03_24.md",
+      "has_children": false
+    },
+    {
+      "content": "- [想法] 回溯问题的一个常见思维转换在于将其转化为固定数量的一连串选择，并且明确前面的选择是如何限制后续的选择的。",
+      "page": "回溯",
+      "has_children": false
+    }
+  ],
+  "association_examples_count": 3
+}
