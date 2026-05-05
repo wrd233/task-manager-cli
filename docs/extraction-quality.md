@@ -16,7 +16,7 @@ tm report extraction-quality --format json
 task/idea。这个值不是越低越好，宁缺毋滥。
 - `suspicious_ideas` ：标题过短、以 `]` 开头、或 extraction metadata 标记可疑的 idea。
 - `source_location_mismatches` ：object canonical location 与 definition record location
-  不一致。
+不一致。
 - `missing_definition_records` ：缺少 definition SourceRecord 的对象。
 - `annotations` ：内部批注数量。
 - `sync_runs` ：同步次数。

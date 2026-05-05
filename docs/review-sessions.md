@@ -44,7 +44,7 @@ apply / rollback 控制。
 Clarify 复用 Review Session，并在 review item 的 `metadata.clarify` 中保存：
 
 - `status` ： `pending` 、 `asked` 、 `answered` 、 `submitted` 、 `proposal_generated` 、
-  `skipped` 、 `failed` 、 `done` ；
+`skipped` 、 `failed` 、 `done` ；
 - `questions` ：本轮固定基础问题；
 - `answers` ：用户回答；
 - `skip_reason` ：跳过原因；

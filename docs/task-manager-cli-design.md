@@ -71,7 +71,7 @@ Agent context 默认启用脱敏。脱敏来源包括默认正则、用户配置
 
 - `today-context` ：最近 journal 暴露的任务、想法、活跃项目和活动性字段。
 - `project-context` ：单项目诊断上下文、任务统计、relations、journal exposures 和事实性
-  signals。
+signals。
 - `inbox-context` ：未关联 idea、可疑 idea 和候选关联。
 
 这些视图只提供证据和信号，不做最终优先级判断。

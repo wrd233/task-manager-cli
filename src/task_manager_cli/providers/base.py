@@ -1,9 +1,11 @@
 import json
 import os
+import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from task_manager_cli.config.settings import PROVIDER_API_KEY_ENV, Settings, load_local_env
 from task_manager_cli.core.errors import ConfigError, TaskManagerError
@@ -19,6 +21,33 @@ class ProviderConfigError(ConfigError):
 
 class ProviderResponseError(ProviderError):
     pass
+
+
+ALLOWED_PROVIDER_TYPES = {
+    "add_marker",
+    "change_task_marker",
+    "add_annotation",
+    "change_state",
+    "add_relation",
+    "create_mini_project",
+    "add_result_marker",
+    "logseq_append_marker",
+    "logseq_task_marker",
+    "annotation",
+    "status_change",
+    "relation_change",
+    "result_marker",
+}
+ALLOWED_RISKS = {"low", "medium", "high"}
+TYPE_MAP = {
+    "add_marker": "logseq_append_marker",
+    "change_task_marker": "logseq_task_marker",
+    "add_annotation": "annotation",
+    "change_state": "status_change",
+    "add_relation": "relation_change",
+    "create_mini_project": "create_mini_project",
+    "add_result_marker": "result_marker",
+}
 
 
 @dataclass
@@ -57,6 +86,9 @@ class ProviderResult:
     reasoning_summary: Optional[str] = None
     needs_user_confirmation: bool = True
     raw_summary: Dict[str, Any] = field(default_factory=dict)
+    usage: Dict[str, Any] = field(default_factory=dict)
+    latency_ms: Optional[int] = None
+    response_id: Optional[str] = None
 
 
 class ProposalProvider:
@@ -163,6 +195,7 @@ class OpenAICompatibleProvider(ProposalProvider):
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.config.api_key}"},
             method="POST",
         )
+        started = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=self.config.timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
@@ -170,8 +203,13 @@ class OpenAICompatibleProvider(ProposalProvider):
             raise ProviderError(f"Provider HTTP error: {exc.code}") from exc
         except urllib.error.URLError as exc:
             raise ProviderError(f"Provider request failed: {exc.reason}") from exc
+        latency_ms = int((time.monotonic() - started) * 1000)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return parse_provider_response(content)
+        result = parse_provider_response(content)
+        result.latency_ms = latency_ms
+        result.usage = data.get("usage") or {}
+        result.response_id = data.get("id")
+        return result
 
 
 def config_from_settings(settings: Settings, override_name: Optional[str] = None) -> ProviderConfig:
@@ -203,6 +241,7 @@ def provider_from_settings(settings: Settings, override_name: Optional[str] = No
 
 
 def parse_provider_response(content: str) -> ProviderResult:
+    content = extract_json_object(content)
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -215,40 +254,149 @@ def parse_provider_response(content: str) -> ProviderResult:
     if not isinstance(candidates, list):
         raise ProviderResponseError("provider proposal_candidates must be a list.")
     normalized: List[Dict[str, Any]] = []
-    for item in candidates:
-        if isinstance(item, dict) and item.get("proposal_type") and isinstance(item.get("payload", {}), dict):
-            normalized.append(item)
+    for index, item in enumerate(candidates):
+        normalized.append(normalize_candidate(item, index=index))
+    classification = data.get("item_classification") or {}
+    if classification and not isinstance(classification, dict):
+        raise ProviderResponseError("item_classification must be an object.")
+    questions = data.get("questions_for_user") or []
+    if not isinstance(questions, list):
+        raise ProviderResponseError("questions_for_user must be a list.")
+    warnings = data.get("warnings") or []
+    if not isinstance(warnings, list):
+        raise ProviderResponseError("warnings must be a list.")
     return ProviderResult(
         summary=str(data.get("summary") or "Provider returned proposals."),
         proposal_candidates=normalized,
-        classification_suggestion=data.get("classification_suggestion"),
+        classification_suggestion=data.get("classification_suggestion") or classification.get("primary_state"),
         gtd_state_suggestion=data.get("gtd_state_suggestion"),
         project_suggestion=data.get("project_suggestion"),
         marker_suggestion=data.get("marker_suggestion"),
         annotation_suggestion=data.get("annotation_suggestion"),
-        confidence=_float_or_none(data.get("confidence")),
-        reasoning_summary=data.get("reasoning_summary"),
+        confidence=_float_or_none(data.get("confidence") if data.get("confidence") is not None else classification.get("confidence")),
+        reasoning_summary=data.get("reasoning_summary") or classification.get("reason"),
         needs_user_confirmation=bool(data.get("needs_user_confirmation", True)),
         raw_summary={
             "summary": data.get("summary"),
             "candidate_count": len(normalized),
             "has_reasoning_summary": bool(data.get("reasoning_summary")),
+            "schema": "clarify_v1_zh",
+            "questions_for_user_count": len(questions),
+            "warnings": warnings[:5],
+            "item_classification": {
+                "primary_state": classification.get("primary_state"),
+                "confidence": classification.get("confidence"),
+                "semantic_tags": classification.get("semantic_tags", [])[:8] if isinstance(classification.get("semantic_tags", []), list) else [],
+            },
         },
     )
 
 
 def system_prompt(prompt_version: str) -> str:
     return (
-        "You generate structured proposal candidates for a personal action system. "
-        "Return JSON only. Do not modify facts. Do not write Logseq. "
-        "Use concise reasoning_summary, never hidden chain-of-thought. "
+        "你是个人行动系统 task-manager-cli 的 Clarify proposal 生成器。你不是任务管理器，"
+        "不能直接修改事实，不能直接写 Logseq，只能输出可审核的 Proposal candidates。"
+        "请保守、短、准：不要过度分类，不要把 reference 当 action，不要把 idea 强行转 task，"
+        "不要生成过多 AI 注，不要建议删除/合并/大规模重排。只输出 JSON object，禁止输出 markdown，"
+        "禁止输出 chain-of-thought，只允许简短 reason。"
+        "JSON schema: {summary,item_classification:{primary_state,semantic_tags,confidence,reason},"
+        "proposal_candidates:[{type,risk,target,content,confidence,reason,needs_user_confirmation}],"
+        "questions_for_user:[{question,why}],warnings:[]}。"
+        "primary_state must be one of inbox,next,waiting,someday,reference,idea,done,dropped,unknown. "
+        "proposal type must be one of add_marker,change_task_marker,add_annotation,change_state,add_relation,"
+        "create_mini_project,add_result_marker. risk must be low,medium,high. "
+        "For this implementation, add_marker, change_task_marker, add_annotation, and add_result_marker are the most usable. "
+        "Avoid change_state unless the user explicitly asks for an internal-only state proposal. "
+        "If the user asks to leave an AI note, use add_marker with content and risk medium. "
+        "target must always be a JSON object; use {} if unsure, never use string/null/array. "
+        "For smoke tests or insufficient context, return proposal_candidates: []. "
         f"Prompt version: {prompt_version}."
     )
+
+
+def normalize_candidate(item: Any, index: int = 0) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        raise ProviderResponseError(f"proposal candidate #{index} must be an object.")
+    raw_type = item.get("type") or item.get("proposal_type")
+    if raw_type not in ALLOWED_PROVIDER_TYPES:
+        raise ProviderResponseError(f"Unsupported proposal candidate type: {raw_type}")
+    risk = item.get("risk") or "medium"
+    if risk not in ALLOWED_RISKS:
+        raise ProviderResponseError(f"Unsupported proposal candidate risk: {risk}")
+    target = item.get("target") or {}
+    if target is not None and not isinstance(target, dict):
+        raise ProviderResponseError("proposal candidate target must be an object.")
+    proposal_type = TYPE_MAP.get(raw_type, raw_type)
+    payload = item.get("payload")
+    if payload is not None and not isinstance(payload, dict):
+        raise ProviderResponseError("proposal candidate payload must be an object.")
+    if payload is None:
+        payload = payload_from_schema_candidate(raw_type, item)
+    return {
+        "proposal_type": proposal_type,
+        "title": item.get("title") or title_for_candidate(raw_type, item.get("content")),
+        "risk": risk,
+        "target": target or {},
+        "payload": payload,
+        "confidence": _float_or_none(item.get("confidence")),
+        "reasoning_summary": item.get("reason") or item.get("reasoning_summary"),
+        "needs_user_confirmation": bool(item.get("needs_user_confirmation", True)),
+    }
+
+
+def payload_from_schema_candidate(raw_type: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    content = str(item.get("content") or "").strip()
+    if raw_type == "add_marker":
+        marker = item.get("marker") or "**[AI注]**"
+        return {"marker": marker, "content": content}
+    if raw_type == "add_result_marker":
+        marker = item.get("marker") or "**[成果]**"
+        return {"marker": marker, "content": content}
+    if raw_type == "change_task_marker":
+        marker = (item.get("new_marker") or content or "WAITING").upper()
+        return {"new_marker": marker}
+    if raw_type == "add_annotation":
+        return {"content": content, "author": "provider", "annotation_type": "comment"}
+    if raw_type == "change_state":
+        return {"status": content or item.get("status")}
+    if raw_type == "add_relation":
+        return {"relation_type": item.get("relation_type"), "target": item.get("target")}
+    if raw_type == "create_mini_project":
+        return {"content": content}
+    return dict(item.get("payload") or {})
+
+
+def title_for_candidate(raw_type: str, content: Optional[str]) -> str:
+    names = {
+        "add_marker": "Add Logseq marker",
+        "change_task_marker": "Change task marker",
+        "add_annotation": "Add internal annotation",
+        "change_state": "Change state",
+        "add_relation": "Add relation",
+        "create_mini_project": "Create mini project",
+        "add_result_marker": "Add result marker",
+    }
+    base = names.get(raw_type, "Provider proposal")
+    return f"{base}: {str(content)[:40]}" if content else base
 
 
 def mask_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
+
+
+def extract_json_object(content: str) -> str:
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    if text.startswith("{") and text.endswith("}"):
+        return text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        return text[start : end + 1]
+    return text
     if len(value) <= 8:
         return "***"
     return f"{value[:3]}...{value[-4:]}"

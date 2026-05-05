@@ -33,6 +33,18 @@ TM_PROVIDER_API_KEY=sk-placeholder
 `.gitignore` 已忽略 `.env` 、 `.env.*` 、 `*.local` 和 `config.local.*` 。不要把真实 key 写入
 README、测试或 tracked config。
 
+## Doctor / Ping
+
+```bash
+tm provider doctor --no-call
+tm provider doctor --provider deepseek
+tm provider ping --provider deepseek
+```
+
+`--no-call` 只检查配置，不访问网络。doctor 输出 provider name、base URL、model、API key
+是否存在、masked key、smoke test 状态、latency、token usage、payload hash 和 response id。完整
+API key 不会输出。
+
 ## Dry Run
 
 ```bash
@@ -82,6 +94,44 @@ Provider 应返回 JSON object：
 
 Provider response 不可信。系统会校验 JSON 和 candidate 结构；无效 JSON 会让 review item 进入
 `failed` ，不会崩溃，也不会应用任何结果。
+
+Round 2.5 使用 `clarify-v1` / `clarify_v1_zh` 风格的保守 Clarify prompt。目标是少量、高置信、
+可审核建议，而不是自动管理任务。
+
+Provider proposal candidate 白名单：
+
+- `add_marker`
+- `change_task_marker`
+- `add_annotation`
+- `change_state`
+- `add_relation`
+- `create_mini_project`
+- `add_result_marker`
+
+Risk 只能是 `low` 、 `medium` 、 `high` 。非法 type、risk、target 或 invalid JSON 会进入 parse
+error。
+
+## Errors / Retry
+
+Provider 失败会写入 review item clarify metadata。覆盖 timeout、network error、401 / 403 / 429 /
+5xx、invalid JSON、schema mismatch、empty response、partial response。
+
+```bash
+tm clarify retry <review-id> --answer "修正后重试" --provider mock
+tm clarify resume <review-id> --answer "继续" --provider deepseek
+```
+
+retry 不会重复处理已经 `proposal_generated` 的 item。
+
+## Quality Eval
+
+```bash
+tm clarify eval <review-id>
+tm clarify eval <review-id> --format json
+```
+
+指标包括 success / failed / parse error、proposal type distribution、risk distribution、average
+confidence、high risk count、latency、redaction status 和 suspicious suggestions。
 
 ## Security
 

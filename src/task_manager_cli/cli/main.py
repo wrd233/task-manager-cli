@@ -15,6 +15,7 @@ from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.proposals.service import ProposalService
+from task_manager_cli.providers.service import ProviderService
 from task_manager_cli.query.agent_views import AgentViewService
 from task_manager_cli.query.exporter import SnapshotExporter
 from task_manager_cli.query.human_views import HumanViewService
@@ -369,10 +370,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("review_id", type=int)
     _add_clarify_common_args(p)
     p.set_defaults(handler=cmd_clarify_resume)
+    p = clarify_sub.add_parser("retry", help="Retry failed clarify items in a review session.")
+    p.add_argument("review_id", type=int)
+    _add_clarify_common_args(p)
+    p.set_defaults(handler=cmd_clarify_retry)
     p = clarify_sub.add_parser("status", help="Show clarify review status.")
     p.add_argument("review_id", type=int)
     p.add_argument("--format", choices=["json", "markdown"], default="json")
     p.set_defaults(handler=cmd_clarify_status)
+    p = clarify_sub.add_parser("eval", help="Evaluate clarify/provider quality for a review session.")
+    p.add_argument("review_id", type=int)
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_clarify_eval)
+
+    provider = sub.add_parser("provider", help="Inspect and smoke-test provider configuration.")
+    provider_sub = provider.add_subparsers(dest="provider_command")
+    p = provider_sub.add_parser("doctor", help="Check provider config and optionally run a smoke test.")
+    p.add_argument("--provider", help="Override provider name.")
+    p.add_argument("--no-call", action="store_true", help="Only inspect configuration; do not call provider.")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_provider_doctor)
+    p = provider_sub.add_parser("ping", help="Run a minimal provider smoke test.")
+    p.add_argument("--provider", help="Override provider name.")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_provider_ping)
     return parser
 
 
@@ -992,11 +1013,80 @@ def cmd_clarify_resume(args) -> str:
     return _format_clarify_result(data, args.format)
 
 
+def cmd_clarify_retry(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).retry(
+        args.review_id,
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
 def cmd_clarify_status(args) -> str:
     data = ReviewSessionService(_conn()).show(args.review_id)
     if args.format == "json":
         return to_json(data)
     return f"# Clarify Review {args.review_id}\n\nstatus: {data.get('status')}\nitems: {len(data.get('items', []))}\nproposals: {len(data.get('proposals', []))}"
+
+
+def cmd_clarify_eval(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).eval_review(args.review_id)
+    if args.format == "json":
+        return to_json(data)
+    lines = [
+        f"# Clarify Quality Review {args.review_id}",
+        "",
+        f"- review items: {data['review_item_count']}",
+        f"- provider success: {data['provider_success_count']}",
+        f"- provider failed: {data['provider_failed_count']}",
+        f"- parse errors: {data['parse_error_count']}",
+        f"- proposals: {data['generated_proposal_count']}",
+        f"- high risk: {data['high_risk_proposal_count']}",
+        f"- accepted/rejected/edited/applied/rollback: {data['accepted_count']} / {data['rejected_count']} / {data['edited_count']} / {data['applied_count']} / {data['rollback_count']}",
+        f"- average confidence: {data['average_confidence']}",
+        f"- average latency ms: {data['average_latency_ms']}",
+        f"- proposal types: {data['proposal_type_distribution']}",
+        f"- risks: {data['risk_distribution']}",
+        f"- suspicious: {data['suspicious_suggestions']}",
+    ]
+    return "\n".join(lines)
+
+
+def _format_provider_result(data: Dict[str, Any], fmt: str) -> str:
+    if fmt == "json":
+        return to_json(data)
+    smoke = data.get("smoke") or {}
+    return "\n".join(
+        [
+            "# Provider Doctor",
+            "",
+            f"- provider: {data.get('provider', {}).get('name')}",
+            f"- base_url: {data.get('provider', {}).get('base_url')}",
+            f"- model: {data.get('provider', {}).get('model')}",
+            f"- api_key: {data.get('provider', {}).get('api_key')}",
+            f"- config_ok: {data.get('config_ok')}",
+            f"- smoke_ok: {smoke.get('ok')}",
+            f"- error: {smoke.get('error')}",
+            f"- latency_ms: {smoke.get('latency_ms')}",
+        ]
+    )
+
+
+def cmd_provider_doctor(args) -> str:
+    data = ProviderService(_settings()).doctor(provider_name=args.provider, no_call=args.no_call)
+    return _format_provider_result(data, args.format)
+
+
+def cmd_provider_ping(args) -> str:
+    data = ProviderService(_settings()).doctor(provider_name=args.provider, no_call=False)
+    return _format_provider_result(data, args.format)
 
 
 if __name__ == "__main__":

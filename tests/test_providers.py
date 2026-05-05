@@ -12,6 +12,7 @@ from task_manager_cli.providers.base import (
     parse_provider_response,
     provider_from_settings,
 )
+from task_manager_cli.providers.service import ProviderService
 
 
 def test_mock_and_dry_run_provider_boundaries(tmp_path):
@@ -29,6 +30,9 @@ def test_mock_and_dry_run_provider_boundaries(tmp_path):
 def test_remote_provider_missing_config_has_clear_error():
     provider = OpenAICompatibleProvider(ProviderConfig(name="remote"))
     with pytest.raises(ConfigError, match="base URL"):
+        provider.generate({"item": {"title": "x"}})
+    provider = OpenAICompatibleProvider(ProviderConfig(name="remote", base_url="https://api.example.invalid/v1", model="m"))
+    with pytest.raises(ConfigError, match="API key"):
         provider.generate({"item": {"title": "x"}})
 
 
@@ -50,5 +54,57 @@ def test_provider_response_schema_and_invalid_json():
     )
     parsed = parse_provider_response(content)
     assert parsed.proposal_candidates[0]["title"] == "Add AI note"
+    fenced = parse_provider_response("```json\n" + content + "\n```")
+    assert fenced.proposal_candidates[0]["title"] == "Add AI note"
     with pytest.raises(ProviderResponseError):
         parse_provider_response("not json")
+
+
+def test_provider_response_new_schema_and_whitelist_validation():
+    content = json.dumps(
+        {
+            "summary": "ok",
+            "item_classification": {"primary_state": "waiting", "semantic_tags": ["needs_clarify"], "confidence": 0.7, "reason": "short"},
+            "proposal_candidates": [
+                {
+                    "type": "change_task_marker",
+                    "risk": "medium",
+                    "target": {"object_id": "1"},
+                    "content": "WAITING",
+                    "confidence": 0.76,
+                    "reason": "depends on someone else",
+                    "needs_user_confirmation": True,
+                }
+            ],
+            "questions_for_user": [{"question": "who blocks it?", "why": "waiting"}],
+            "warnings": [],
+        }
+    )
+    parsed = parse_provider_response(content)
+    assert parsed.classification_suggestion == "waiting"
+    assert parsed.proposal_candidates[0]["proposal_type"] == "logseq_task_marker"
+    assert parsed.proposal_candidates[0]["payload"]["new_marker"] == "WAITING"
+    assert parsed.raw_summary["questions_for_user_count"] == 1
+    with pytest.raises(ProviderResponseError, match="Unsupported proposal candidate type"):
+        parse_provider_response(json.dumps({"proposal_candidates": [{"type": "delete_everything", "risk": "high", "target": {}, "content": "x"}]}))
+    with pytest.raises(ProviderResponseError, match="risk"):
+        parse_provider_response(json.dumps({"proposal_candidates": [{"type": "add_marker", "risk": "danger", "target": {}, "content": "x"}]}))
+    with pytest.raises(ProviderResponseError, match="target"):
+        parse_provider_response(json.dumps({"proposal_candidates": [{"type": "add_marker", "risk": "low", "target": "bad", "content": "x"}]}))
+
+
+def test_provider_doctor_no_call_and_env_local_config(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.local").write_text(
+        "TM_PROVIDER=deepseek\n"
+        "TM_PROVIDER_BASE_URL=https://api.example.invalid/v1\n"
+        "TM_PROVIDER_MODEL=model-placeholder\n"
+        "TM_PROVIDER_API_KEY=sk-test-placeholder\n",
+        encoding="utf-8",
+    )
+    settings = Settings.load(tmp_path / "missing-config.json")
+    data = ProviderService(settings).doctor(no_call=True)
+    assert data["provider"]["name"] == "deepseek"
+    assert data["provider"]["api_key_present"] is True
+    assert data["provider"]["api_key"] != "sk-test-placeholder"
+    assert data["checks"]["no_call"] is True

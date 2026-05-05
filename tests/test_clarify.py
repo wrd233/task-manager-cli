@@ -43,7 +43,7 @@ def test_clarify_selected_records_questions_answers_and_generates_proposals(tmp_
     assert len(clarify["questions"]) >= 7
     assert clarify["answers"][0]["answer"] == "仍有价值，先沉淀 AI 注"
     assert review["proposals"]
-    assert "accept / reject / edit / apply" in result["table"]
+    assert "accept/reject/edit/apply" in result["table"]
     assert review["proposals"][0]["status"] == "suggested"
     assert target.read_text(encoding="utf-8") == before
     assert repo.get_object(task["id"])["status"] == task["status"]
@@ -81,6 +81,26 @@ def test_clarify_dry_run_payload_preview_is_redacted_and_does_not_generate_propo
     assert "secret" not in rendered
     assert "sk-1234567890abcdef" not in rendered
     assert result["proposals"] == []
+    preview_payload = result["payload_previews"][0]["payload"]
+    assert "raw_text" not in json.dumps(preview_payload)
+    assert "file_path" not in json.dumps(preview_payload)
+
+
+def test_clarify_payload_size_guard_and_eval(tmp_path):
+    service, repo, conn, _graph = loaded_clarify(tmp_path)
+    task = next(obj for obj in repo.list_objects("task", limit=20) if obj["title"] == "搭建索引器")
+    payload = service.build_payload(1, 1, repo.get_object(task["id"]), "x" * 9000)
+    assert payload["payload_truncated"] is True
+    assert len(payload["answers"][0]["answer"]) < 900
+
+    result = service.start_selected([str(task["id"])], answer="等待外部条件", provider_name="mock")
+    conn.commit()
+    quality = service.eval_review(result["review_id"])
+    assert quality["review_item_count"] == 1
+    assert quality["generated_proposal_count"] >= 1
+    assert quality["risk_distribution"]["medium"] >= 1
+    assert quality["accepted_count"] == 0
+    assert quality["rollback_count"] == 0
 
 
 def test_clarify_cli_selected_creates_review(tmp_path):
@@ -117,3 +137,15 @@ def test_clarify_cli_selected_creates_review(tmp_path):
     data = json.loads(proc.stdout)
     assert data["review_id"]
     assert data["proposals"]
+
+
+def test_clarify_retry_failed_items_does_not_duplicate_success(tmp_path):
+    service, repo, conn, _graph = loaded_clarify(tmp_path)
+    tasks = repo.list_objects("task", limit=20)[:2]
+    failed = service.start_selected([str(tasks[0]["id"])], answer="bad", provider_name="invalid-json")
+    success = service.start_selected([str(tasks[1]["id"])], answer="ok", provider_name="mock")
+    retry = service.retry(failed["review_id"], answer="retry ok", provider_name="mock")
+    retry_again = service.retry(success["review_id"], answer="should not duplicate", provider_name="mock")
+    conn.commit()
+    assert retry["proposals"]
+    assert len(retry_again["proposals"]) == 1

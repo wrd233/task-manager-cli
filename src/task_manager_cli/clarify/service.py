@@ -1,8 +1,9 @@
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from task_manager_cli.config.settings import Settings
-from task_manager_cli.core.enums import ProposalStatus
+from task_manager_cli.core.enums import ProposalStatus, ProposalType
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.proposals.service import ProposalService, classify_risk
@@ -26,6 +27,10 @@ BASIC_QUESTIONS = [
     {"id": "result", "text": "它完成后是否需要成果标注？"},
     {"id": "handling", "text": "你希望如何处理它？"},
 ]
+MAX_PAYLOAD_CHARS = 6000
+MAX_NOTE_CHARS = 240
+ALLOWED_PROPOSAL_TYPES = {item.value for item in ProposalType}
+ALLOWED_RISKS = {"low", "medium", "high"}
 
 
 class ClarifyService:
@@ -73,6 +78,9 @@ class ClarifyService:
         self.reviews.set_status(review_id, "in_progress")
         return self.run_review(review_id, **kwargs)
 
+    def retry(self, review_id: int, **kwargs) -> Dict[str, Any]:
+        return self.resume(review_id, **kwargs)
+
     def run_review(
         self,
         review_id: int,
@@ -113,18 +121,50 @@ class ClarifyService:
                         "status": "submitted",
                         "provider": provider.config.name,
                         "provider_request_summary": self._payload_summary(preview),
-                        "provider_response_summary": {"dry_run": True},
-                    },
+                    "provider_response_summary": {"dry_run": True},
+                    "error": None,
+                    "error_type": None,
+                },
                 )
                 processed.append({"review_item_id": item["id"], "status": "submitted", "dry_run": True})
                 continue
             try:
+                started = time.monotonic()
                 result = provider.generate(payload)
             except (ProviderConfigError, ProviderError, ProviderResponseError) as exc:
-                self.reviews.update_item_clarify(item["id"], {"status": "failed", "provider": provider.config.name, "error": str(exc)})
+                self.reviews.update_item_clarify(
+                    item["id"],
+                    {
+                        "status": "failed",
+                        "provider": provider.config.name,
+                        "error": str(exc),
+                        "error_type": "parse_error" if isinstance(exc, ProviderResponseError) else exc.__class__.__name__,
+                        "provider_request_summary": self._payload_summary(payload),
+                    },
+                )
                 processed.append({"review_item_id": item["id"], "status": "failed", "error": str(exc)})
                 continue
-            proposal_ids = self._result_to_proposals(review_id, int(object_id), result)
+            latency_ms = result.latency_ms if result.latency_ms is not None else int((time.monotonic() - started) * 1000)
+            try:
+                proposal_ids = self._result_to_proposals(review_id, int(object_id), result)
+            except ProviderResponseError as exc:
+                self.reviews.update_item_clarify(
+                    item["id"],
+                    {
+                        "status": "failed",
+                        "provider": provider.config.name,
+                        "error": str(exc),
+                        "error_type": "parse_error",
+                        "provider_request_summary": self._payload_summary(payload),
+                        "provider_response_summary": {
+                            "summary": result.summary,
+                            "candidate_count": len(result.proposal_candidates),
+                            "confidence": result.confidence,
+                        },
+                    },
+                )
+                processed.append({"review_item_id": item["id"], "status": "failed", "error": str(exc)})
+                continue
             generated.extend(proposal_ids)
             self.reviews.update_item_clarify(
                 item["id"],
@@ -137,11 +177,18 @@ class ClarifyService:
                         "candidate_count": len(result.proposal_candidates),
                         "confidence": result.confidence,
                         "reasoning_summary": result.reasoning_summary,
+                        "latency_ms": latency_ms,
+                        "usage": result.usage,
+                        "response_id": result.response_id,
+                        "raw_summary": result.raw_summary,
                     },
                     "generated_proposal_ids": proposal_ids,
+                    "error": None,
+                    "error_type": None,
                 },
             )
-            processed.append({"review_item_id": item["id"], "status": "proposal_generated", "proposal_ids": proposal_ids})
+            processed_status = "proposal_generated" if proposal_ids else "submitted"
+            processed.append({"review_item_id": item["id"], "status": processed_status, "proposal_ids": proposal_ids})
         proposals = self.proposals.list(review_session_id=review_id, limit=200)
         return {
             "review_id": review_id,
@@ -152,6 +199,9 @@ class ClarifyService:
         }
 
     def build_payload(self, review_id: int, review_item_id: int, obj: Dict[str, Any], answer: str) -> Dict[str, Any]:
+        annotations = self.repo.list_annotations(target_object_id=int(obj["id"]), limit=5)
+        records = self.repo.records_for_object(int(obj["id"]), limit=8)
+        notes, notes_truncated = self._short_notes(records)
         raw = {
             "prompt_version": self.settings.provider_prompt_version,
             "review_id": review_id,
@@ -167,11 +217,20 @@ class ClarifyService:
                     "semantic_marker": obj.get("metadata", {}).get("semantic_marker"),
                 },
                 "location": {
+                    "source_type": obj.get("canonical_source"),
                     "page_name": obj.get("page_name"),
                     "journal_date": obj.get("journal_date"),
                     "line_start": obj.get("line_start"),
                     "block_uuid_present": bool(obj.get("block_uuid")),
                 },
+            },
+            "short_context": {
+                "child_notes": notes,
+                "child_notes_truncated": notes_truncated,
+                "existing_annotations": [
+                    {"type": item.get("annotation_type"), "status": item.get("status"), "content": str(item.get("content", ""))[:MAX_NOTE_CHARS]}
+                    for item in annotations
+                ],
             },
             "questions": BASIC_QUESTIONS,
             "answers": [{"question_id": "freeform", "answer": answer}],
@@ -180,9 +239,21 @@ class ClarifyService:
                 "Do not directly modify facts.",
                 "Do not write Logseq.",
                 "Return JSON only.",
+                "Prefer zero or one high-value proposal. Do not over-generate AI notes.",
             ],
         }
-        return redact_json(raw, self.redactor)
+        redacted = redact_json(raw, self.redactor)
+        rendered = json.dumps(redacted, ensure_ascii=False)
+        if len(rendered) > MAX_PAYLOAD_CHARS:
+            redacted["short_context"]["child_notes"] = redacted["short_context"]["child_notes"][:2]
+            redacted["short_context"]["child_notes_truncated"] = True
+            for item in redacted.get("answers", []):
+                if isinstance(item.get("answer"), str) and len(item["answer"]) > 800:
+                    item["answer"] = item["answer"][:800] + "..."
+            redacted["payload_truncated"] = True
+            redacted["payload_size_before_truncate"] = len(rendered)
+        redacted["payload_size_chars"] = len(json.dumps(redacted, ensure_ascii=False))
+        return redacted
 
     def inbox_candidates(self, limit: int = 10) -> List[str]:
         rows = self.conn.execute(
@@ -247,6 +318,13 @@ class ClarifyService:
         proposal_ids: List[int] = []
         for candidate in result.proposal_candidates:
             proposal_type = candidate["proposal_type"]
+            if proposal_type not in ALLOWED_PROPOSAL_TYPES:
+                raise ProviderResponseError(f"Unsupported normalized proposal type: {proposal_type}")
+            if candidate.get("risk") and candidate["risk"] not in ALLOWED_RISKS:
+                raise ProviderResponseError(f"Unsupported normalized proposal risk: {candidate['risk']}")
+            target = candidate.get("target") or {}
+            if target.get("object_id") and str(target["object_id"]) != str(object_id):
+                raise ProviderResponseError("Provider candidate target object_id does not match current item.")
             payload = dict(candidate.get("payload") or {})
             if proposal_type == "logseq_append_marker" and "marker" not in payload:
                 payload["marker"] = "**[AI注]**"
@@ -263,7 +341,8 @@ class ClarifyService:
                 metadata={
                     "provider_confidence": candidate.get("confidence", result.confidence),
                     "provider_summary": result.summary,
-                    "needs_user_confirmation": result.needs_user_confirmation,
+                    "needs_user_confirmation": candidate.get("needs_user_confirmation", result.needs_user_confirmation),
+                    "provider_target": target,
                 },
             )
             proposal_ids.append(proposal_id)
@@ -271,7 +350,85 @@ class ClarifyService:
         return proposal_ids
 
     def _payload_summary(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {"keys": sorted(payload.keys()), "size_chars": len(json.dumps(payload, ensure_ascii=False))}
+        return {
+            "keys": sorted(payload.keys()),
+            "size_chars": len(json.dumps(payload, ensure_ascii=False)),
+            "payload_truncated": bool(payload.get("payload_truncated")),
+            "redacted": "[REDACTED]" in json.dumps(payload, ensure_ascii=False),
+        }
+
+    def _short_notes(self, records: List[Dict[str, Any]]) -> tuple:
+        notes: List[Dict[str, Any]] = []
+        truncated = False
+        for record in records:
+            if record.get("role") == "definition":
+                continue
+            text = str(record.get("raw_text", "")).strip()
+            if not text:
+                continue
+            redacted = self.redactor.redact(text, private=bool(record.get("metadata", {}).get("private"))).text
+            if len(redacted) > MAX_NOTE_CHARS:
+                redacted = redacted[:MAX_NOTE_CHARS] + "..."
+                truncated = True
+            notes.append({"role": record.get("role"), "text": redacted})
+            if len(notes) >= 4:
+                truncated = True
+                break
+        return notes, truncated
+
+    def eval_review(self, review_id: int) -> Dict[str, Any]:
+        review = self.reviews.show(review_id)
+        proposals = review.get("proposals", [])
+        items = review.get("items", [])
+        statuses = [item.get("metadata", {}).get("clarify", {}).get("status", "pending") for item in items]
+        response_summaries = [item.get("metadata", {}).get("clarify", {}).get("provider_response_summary", {}) for item in items]
+        proposal_types: Dict[str, int] = {}
+        risks: Dict[str, int] = {}
+        confidences: List[float] = []
+        for proposal in proposals:
+            proposal_types[proposal["proposal_type"]] = proposal_types.get(proposal["proposal_type"], 0) + 1
+            risks[proposal["risk"]] = risks.get(proposal["risk"], 0) + 1
+            confidence = proposal.get("metadata", {}).get("provider_confidence")
+            if isinstance(confidence, (int, float)):
+                confidences.append(float(confidence))
+        event_counts: Dict[str, int] = {}
+        for proposal in proposals:
+            status = proposal.get("status")
+            event_counts[status] = event_counts.get(status, 0) + 1
+        latencies = [summary.get("latency_ms") for summary in response_summaries if isinstance(summary.get("latency_ms"), int)]
+        parse_errors = sum(
+            1
+            for item in items
+            if item.get("metadata", {}).get("clarify", {}).get("status") == "failed"
+            and item.get("metadata", {}).get("clarify", {}).get("error_type") == "parse_error"
+        )
+        high_risk = risks.get("high", 0)
+        suspicious = []
+        if proposal_types.get("logseq_append_marker", 0) > max(2, len(items)):
+            suspicious.append("possible_over_generation_of_ai_notes")
+        if high_risk:
+            suspicious.append("high_risk_proposals_present")
+        return {
+            "review_id": review_id,
+            "review_item_count": len(items),
+            "provider_success_count": statuses.count("proposal_generated") + statuses.count("submitted"),
+            "provider_failed_count": statuses.count("failed"),
+            "parse_error_count": parse_errors,
+            "generated_proposal_count": len(proposals),
+            "proposal_type_distribution": proposal_types,
+            "risk_distribution": risks,
+            "average_confidence": sum(confidences) / len(confidences) if confidences else None,
+            "high_risk_proposal_count": high_risk,
+            "status_distribution": event_counts,
+            "accepted_count": event_counts.get("accepted", 0),
+            "rejected_count": event_counts.get("rejected", 0),
+            "edited_count": event_counts.get("edited", 0),
+            "applied_count": event_counts.get("applied", 0),
+            "rollback_count": event_counts.get("rolled_back", 0),
+            "average_latency_ms": int(sum(latencies) / len(latencies)) if latencies else None,
+            "payload_redaction_status": any(item.get("metadata", {}).get("clarify", {}).get("provider_request_summary", {}).get("redacted") for item in items),
+            "suspicious_suggestions": suspicious,
+        }
 
     def _prompt_answer(self, obj: Dict[str, Any]) -> str:
         print(f"\nClarify item #{obj.get('id')}: {obj.get('title')}")
@@ -299,7 +456,7 @@ def redact_json(data: Any, redactor: Redactor) -> Any:
 def proposal_table(proposals: List[Dict[str, Any]], repo: Repository) -> str:
     if not proposals:
         return "No proposals generated."
-    headers = ["ID", "条目", "当前状态", "Provider 建议", "风险", "置信度", "操作"]
+    headers = ["Proposal", "Object", "Current", "Suggestion", "Type", "Risk", "Confidence", "Reason", "Action"]
     rows: List[List[str]] = []
     for proposal in proposals:
         obj = repo.get_object(int(proposal["target_object_id"])) if proposal.get("target_object_id") else None
@@ -310,9 +467,11 @@ def proposal_table(proposals: List[Dict[str, Any]], repo: Repository) -> str:
                 str((obj or {}).get("title") or proposal.get("target_object_id") or ""),
                 str((obj or {}).get("status") or ""),
                 str(proposal.get("title") or "")[:48],
+                str(proposal.get("proposal_type") or ""),
                 str(proposal.get("risk") or ""),
                 "" if confidence is None else str(confidence),
-                "accept / reject / edit / apply",
+                str(proposal.get("rationale") or "")[:42],
+                "accept/reject/edit/apply",
             ]
         )
     widths = [len(item) for item in headers]

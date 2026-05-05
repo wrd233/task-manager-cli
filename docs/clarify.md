@@ -8,7 +8,7 @@ Clarify 复用 Review Session：
 
 - Review Session 记录范围、候选 item、状态和事件。
 - Review item 的 `metadata.clarify` 记录 questions、answers、skip reason、provider request /
-  response 摘要和 generated proposals。
+response 摘要和 generated proposals。
 - Provider 返回只会转换成 `suggested` Proposal。
 - Proposal 仍需用户 `accept` / `reject` / `edit` ，写回仍需 preview / confirm / apply。
 
@@ -20,7 +20,9 @@ tm clarify inbox --limit 10 --answer "先沉淀 AI 注" --provider mock
 tm clarify today --limit 10 --provider dry-run --answer "payload preview"
 tm clarify project 项目-Alpha --limit 10 --answer "项目内澄清"
 tm clarify resume 1 --answer "继续处理" --provider mock
+tm clarify retry 1 --answer "修正配置后重试" --provider deepseek
 tm clarify status 1
+tm clarify eval 1
 ```
 
 `selected` 是本轮的主入口。 `inbox` 、 `today` 、 `project`
@@ -46,6 +48,21 @@ CLI 可以逐条 prompt，也可以用 `--answer` 非交互记录一条 freeform
 Clarify 构造脱敏 payload，只包含对象摘要、状态、位置摘要、基础问题、用户回答和安全约束。Provider
 生成 proposal candidates 后，系统校验 schema 并创建 `suggested` Proposal。
 
+真实 provider 流程建议：
+
+```bash
+tm clarify selected --ids 12 --answer "..." --provider dry-run --format json
+tm clarify selected --ids 12 --answer "..." --provider deepseek --format markdown
+tm clarify eval <review-id>
+```
+
+先看 payload preview，再做真实调用。真实调用不会自动 apply。
+
+Payload 默认分层且克制：object id、title、current state、semantic markers / tags、source
+type、page、journal date、line、short child notes、existing annotations summary、user answer 和
+safety constraints。默认不发送完整文件正文、全量 Logseq 子树或大量 linked records。payload
+超过限制会截断 notes / answer，并标出 `payload_truncated` 。
+
 Review item clarify 状态包括：
 
 - `pending`
@@ -63,8 +80,8 @@ Review item clarify 状态包括：
 
 Clarify 结束后输出建议表：
 
-| ID | 条目 | 当前状态 | Provider 建议 | 风险 | 置信度 | 操作 |
-|---|---|---|---|---|---|---|
+| Proposal | Object | Current | Suggestion | Type | Risk | Confidence | Reason | Action |
+|---|---|---|---|---|---|---|---|---|
 
 操作仍通过 `tm proposal ...` 完成：
 
@@ -82,3 +99,6 @@ tm proposal rollback 1
 
 本轮不支持完整小任务系统、完整项目语义树、成果系统、复杂 TUI、文件系统
 metadata、自动删除、自动合并或未经确认的写回。
+
+Round 2.5 增加 provider doctor、真实 provider smoke test、retry failed、clarify eval、严格
+response schema 和 payload size guard。
