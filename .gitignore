@@ -7,6 +7,11 @@ htmlcov/
 venv/
 *.egg-info/
 .DS_Store
+.env
+.env.*
+!.env.example
+*.local.json
+local-config.json
 *.sqlite3
 *.sqlite
 dist/

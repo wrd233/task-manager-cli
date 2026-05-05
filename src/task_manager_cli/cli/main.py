@@ -13,10 +13,12 @@ from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManager
 from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
+from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.query.agent_views import AgentViewService
 from task_manager_cli.query.exporter import SnapshotExporter
 from task_manager_cli.query.human_views import HumanViewService
 from task_manager_cli.query.service import QueryService
+from task_manager_cli.reviews.service import ReviewSessionService
 from task_manager_cli.storage.database import connect, init_db
 from task_manager_cli.storage.repositories import Repository
 from task_manager_cli.writes.service import WriteService
@@ -259,6 +261,80 @@ def build_parser() -> argparse.ArgumentParser:
     p = write_sub.add_parser("reject", help="Reject an open write proposal.")
     p.add_argument("proposal_id", type=int)
     p.set_defaults(handler=cmd_write_reject)
+
+    proposal = sub.add_parser("proposal", help="Review and apply structured change proposals.")
+    proposal_sub = proposal.add_subparsers(dest="proposal_command")
+    p = proposal_sub.add_parser("create-annotation", help="Create a low-risk internal annotation proposal.")
+    p.add_argument("content")
+    p.add_argument("--object")
+    p.add_argument("--record")
+    p.add_argument("--author", default="agent")
+    p.set_defaults(handler=cmd_proposal_create_annotation)
+    p = proposal_sub.add_parser("create-marker", help="Create a Logseq marker writeback proposal.")
+    p.add_argument("marker", choices=["注", "AI注", "待澄清", "成果", "无成果"])
+    p.add_argument("content")
+    p.add_argument("--object")
+    p.add_argument("--file")
+    p.add_argument("--uuid")
+    p.add_argument("--line", type=int)
+    p.add_argument("--author", default="agent")
+    p.set_defaults(handler=cmd_proposal_create_marker)
+    p = proposal_sub.add_parser("create-task-marker", help="Create a Logseq task marker change proposal.")
+    p.add_argument("marker", choices=["TODO", "DOING", "DONE", "WAITING"])
+    p.add_argument("--object")
+    p.add_argument("--file")
+    p.add_argument("--uuid")
+    p.add_argument("--line", type=int)
+    p.add_argument("--author", default="agent")
+    p.set_defaults(handler=cmd_proposal_create_task_marker)
+    p = proposal_sub.add_parser("list", help="List proposals.")
+    p.add_argument("--status")
+    p.add_argument("--review", type=int)
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(handler=cmd_proposal_list)
+    p = proposal_sub.add_parser("show", help="Show a proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.add_argument("--preview", action="store_true")
+    p.set_defaults(handler=cmd_proposal_show)
+    p = proposal_sub.add_parser("accept", help="Accept a suggested proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.set_defaults(handler=cmd_proposal_accept)
+    p = proposal_sub.add_parser("reject", help="Reject a suggested proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.set_defaults(handler=cmd_proposal_reject)
+    p = proposal_sub.add_parser("apply", help="Apply an accepted proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.add_argument("--yes", action="store_true", help="Confirm guarded Logseq writeback.")
+    p.set_defaults(handler=cmd_proposal_apply)
+    p = proposal_sub.add_parser("rollback", help="Roll back an applied proposal when possible.")
+    p.add_argument("proposal_id", type=int)
+    p.set_defaults(handler=cmd_proposal_rollback)
+
+    review = sub.add_parser("review", help="Create and inspect review sessions.")
+    review_sub = review.add_subparsers(dest="review_command")
+    p = review_sub.add_parser("start", help="Start a review session.")
+    p.add_argument("--type", required=True, choices=["inbox", "today", "selected"])
+    p.add_argument("--ids", nargs="*", default=[])
+    p.add_argument("--title")
+    p.set_defaults(handler=cmd_review_start)
+    p = review_sub.add_parser("list", help="List review sessions.")
+    p.add_argument("--status")
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(handler=cmd_review_list)
+    p = review_sub.add_parser("show", help="Show a review session.")
+    p.add_argument("review_id", type=int)
+    p.set_defaults(handler=cmd_review_show)
+    p = review_sub.add_parser("proposals", help="List proposals generated in a review session.")
+    p.add_argument("review_id", type=int)
+    p.set_defaults(handler=cmd_review_proposals)
+    p = review_sub.add_parser("status", help="Set review status.")
+    p.add_argument("review_id", type=int)
+    p.add_argument("status", choices=["open", "in_progress", "paused", "completed", "cancelled"])
+    p.set_defaults(handler=cmd_review_status)
+    p = review_sub.add_parser("close", help="Close a review session.")
+    p.add_argument("review_id", type=int)
+    p.add_argument("--cancel", action="store_true")
+    p.set_defaults(handler=cmd_review_close)
     return parser
 
 
@@ -624,6 +700,126 @@ def cmd_write_reject(args) -> str:
     WriteService(conn, settings).reject(args.proposal_id)
     conn.commit()
     return to_json({"proposal_id": args.proposal_id, "status": "rejected"})
+
+
+def _proposal_service(conn=None):
+    settings = _settings()
+    return ProposalService(conn or _conn(settings), settings)
+
+
+def cmd_proposal_create_annotation(args) -> str:
+    conn = _conn()
+    proposal_id = ProposalService(conn, _settings()).create_annotation(args.content, target_object_ref=args.object, target_record_ref=args.record, author=args.author)
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
+def cmd_proposal_create_marker(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    proposal_id = ProposalService(conn, settings).create_logseq_marker(
+        args.marker,
+        args.content,
+        target_object_ref=args.object,
+        file_path=args.file,
+        block_uuid=args.uuid,
+        line_start=args.line,
+        source=args.author,
+    )
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
+def cmd_proposal_create_task_marker(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    proposal_id = ProposalService(conn, settings).create_task_marker(
+        args.marker,
+        target_object_ref=args.object,
+        file_path=args.file,
+        block_uuid=args.uuid,
+        line_start=args.line,
+        source=args.author,
+    )
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
+def cmd_proposal_list(args) -> str:
+    return to_json(_proposal_service().list(status=args.status, review_session_id=args.review, limit=args.limit))
+
+
+def cmd_proposal_show(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProposalService(conn, settings)
+    data = service.preview(args.proposal_id) if args.preview else service.get(args.proposal_id)
+    if args.preview:
+        conn.commit()
+    return to_json(data)
+
+
+def cmd_proposal_accept(args) -> str:
+    conn = _conn()
+    ProposalService(conn, _settings()).accept(args.proposal_id)
+    conn.commit()
+    return to_json({"proposal_id": args.proposal_id, "status": "accepted"})
+
+
+def cmd_proposal_reject(args) -> str:
+    conn = _conn()
+    ProposalService(conn, _settings()).reject(args.proposal_id)
+    conn.commit()
+    return to_json({"proposal_id": args.proposal_id, "status": "rejected"})
+
+
+def cmd_proposal_apply(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    result = ProposalService(conn, settings).apply(args.proposal_id, confirmed=args.yes)
+    conn.commit()
+    return to_json(result)
+
+
+def cmd_proposal_rollback(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    result = ProposalService(conn, settings).rollback(args.proposal_id)
+    conn.commit()
+    return to_json(result)
+
+
+def cmd_review_start(args) -> str:
+    conn = _conn()
+    review_id = ReviewSessionService(conn).start(args.type, item_refs=args.ids, title=args.title)
+    conn.commit()
+    return to_json({"review_id": review_id, "status": "open"})
+
+
+def cmd_review_list(args) -> str:
+    return to_json(ReviewSessionService(_conn()).list(status=args.status, limit=args.limit))
+
+
+def cmd_review_show(args) -> str:
+    return to_json(ReviewSessionService(_conn()).show(args.review_id))
+
+
+def cmd_review_proposals(args) -> str:
+    return to_json(ReviewSessionService(_conn()).proposals(args.review_id))
+
+
+def cmd_review_status(args) -> str:
+    conn = _conn()
+    ReviewSessionService(conn).set_status(args.review_id, args.status)
+    conn.commit()
+    return to_json({"review_id": args.review_id, "status": args.status})
+
+
+def cmd_review_close(args) -> str:
+    conn = _conn()
+    ReviewSessionService(conn).close(args.review_id, cancelled=args.cancel)
+    conn.commit()
+    return to_json({"review_id": args.review_id, "status": "cancelled" if args.cancel else "completed"})
 
 
 if __name__ == "__main__":

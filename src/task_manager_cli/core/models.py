@@ -77,6 +77,30 @@ class Annotation:
 
 
 @dataclass
+class Proposal:
+    proposal_type: str
+    title: str
+    payload: JsonDict
+    risk: str
+    status: str = "suggested"
+    target_object_id: Optional[int] = None
+    target_record_id: Optional[int] = None
+    review_session_id: Optional[int] = None
+    source: str = "agent"
+    rationale: Optional[str] = None
+    metadata: JsonDict = field(default_factory=dict)
+
+
+@dataclass
+class ReviewSession:
+    review_type: str
+    status: str = "open"
+    title: Optional[str] = None
+    scope: JsonDict = field(default_factory=dict)
+    metadata: JsonDict = field(default_factory=dict)
+
+
+@dataclass
 class ContextPackage:
     query: JsonDict
     objects: List[JsonDict]

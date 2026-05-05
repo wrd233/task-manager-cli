@@ -1,9 +1,17 @@
 # task-manager-cli
 
-本项目是一个“本地行动对象索引器 + 上下文查询接口 + Agent 批注存储层”。它从 Logseq 等本地记录系统中只读抽取 Project / Task / Idea / Record / Location / Relation，并把 Agent 或人的批注写入自己的 SQLite 数据库。
+本项目是一个“本地行动对象索引器 + 上下文查询接口 + Agent 批注 / Proposal 存储层”。它从 Logseq 等本地记录系统中抽取 Project / Action Item / Task / Idea / Record / Location / Relation，并把 Agent 或人的批注写入自己的 SQLite 数据库。
 
 它不是普通 TODO 工具：CLI 不判断今天该做什么，不做最终优先级排序，也不自动修改 Logseq。
-外部 Agent 负责基于 CLI 输出做判断；Agent 的批注和建议默认写入 CLI 内部 SQLite，不写回 Logseq。
+外部 Agent 负责基于 CLI 输出做判断；Agent 的批注和建议默认写入 CLI 内部 SQLite，不写回 Logseq。第 1 轮新增的是 Proposal / Review Session / 沙箱 Logseq 写回基础闭环，不是完整 Clarify、远端 API、小任务系统或项目语义树。
+
+## Round 1 新增能力
+
+- 通用 Proposal：`suggested -> accepted -> applied -> rolled_back` 的基础生命周期，支持风险分级和事件历史。
+- Review Session：记录一次 inbox / today / selected 审核范围、候选对象、关联 proposals 和状态变化。
+- Logseq 写回安全骨架：由 Proposal 驱动，支持 preview / diff / apply / backup / rollback，先面向测试 graph。
+- 语义标记识别：`**[想法]**`、`**[待澄清]**`、`**[注]**`、`**[AI注]**`、`**[成果]**`、`**[无成果]**`，以及 `#inbox` / `#someday` / `#waiting` / `#reference`。
+- Provider 边界：本轮只有 rule-based/mock provider，不接真实远端 API。
 
 ## 安装
 
@@ -129,6 +137,35 @@ tm write preview 1 --no-redact
 tm write reject 1
 ```
 
+结构化 Proposal：
+
+```bash
+tm proposal create-annotation --object 12 "这个任务需要先确认输入边界"
+tm proposal create-marker AI注 "建议先做最小验证" --object 12
+tm proposal create-task-marker WAITING --object 12
+tm proposal list
+tm proposal show 1 --preview
+tm proposal accept 1
+tm proposal apply 1 --yes
+tm proposal rollback 1
+```
+
+Review Session：
+
+```bash
+tm review start --type inbox
+tm review start --type selected --ids 12 34
+tm review list
+tm review show 1
+tm review proposals 1
+tm review status 1 paused
+tm review close 1
+```
+
+API key 不要写入仓库。本轮不需要真实 API key；下一轮接远端 provider 时应使用环境变量、`.env.local` 或用户本地配置，并确保不提交。
+
+Logseq 写回请先只在临时测试 graph 中使用。真实 graph 写回必须先看 `tm proposal show <id> --preview` 的 diff，再显式 accept/apply。
+
 ## 目录结构
 
 - `src/task_manager_cli/core/`：与数据源无关的领域模型和枚举。
@@ -138,6 +175,9 @@ tm write reject 1
 - `src/task_manager_cli/query/`：对象查询、context package、Agent context。
 - `src/task_manager_cli/query/human_views.py`：人类可读短视图，复用 query / agent view 底层能力。
 - `src/task_manager_cli/annotations/`：批注新增、查询、状态更新。
+- `src/task_manager_cli/proposals/`：结构化 Proposal 生命周期、风险、apply / rollback。
+- `src/task_manager_cli/reviews/`：Review Session 创建、状态和 proposal 关联。
+- `src/task_manager_cli/providers/`：下一轮远端 API / 本地规则 provider 边界。
 - `src/task_manager_cli/privacy/`：默认脱敏和用户敏感规则。
 - `src/task_manager_cli/cli/`：命令入口，只做参数编排。
 - `tests/fixtures/logseq_graph/`：稳定 Logseq fixture。
@@ -148,6 +188,14 @@ tm write reject 1
 - 不做跨来源语义去重，也不判断任务优先级。
 - 默认不写 Logseq；开启写模式后也只支持 append-only proposal/apply。
 - Flomo adapter 只有边界文档，尚未接入真实 API 或导出格式。
+- 第 1 轮不实现完整 Clarify、小任务系统、项目语义树、Anki、远端 API 或复杂 TUI。
+
+## 文档
+
+- `docs/proposals.md`
+- `docs/review-sessions.md`
+- `docs/logseq-writeback.md`
+- `docs/semantic-markers.md`
 
 ## Claude Code
 

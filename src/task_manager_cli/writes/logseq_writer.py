@@ -1,5 +1,6 @@
 import difflib
 import hashlib
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -34,6 +35,7 @@ class LogseqWriter:
 
     def preview_append_child(self, file_path: Path, content: str, block_uuid: Optional[str] = None, line_start: Optional[int] = None) -> WritePreview:
         path = Path(file_path).expanduser()
+        self._ensure_inside_graph(path)
         lines = path.read_text(encoding="utf-8").splitlines()
         block = self._resolve_block(path, block_uuid=block_uuid, line_start=line_start)
         insert_at = self._subtree_end_line(block, lines)
@@ -44,6 +46,7 @@ class LogseqWriter:
 
     def preview_append_page_section(self, file_path: Path, section_marker: str, content: str) -> WritePreview:
         path = Path(file_path).expanduser()
+        self._ensure_inside_graph(path)
         lines = path.read_text(encoding="utf-8").splitlines()
         parsed = parse_logseq_file(path)
         section = next((block for block in parsed.blocks if section_marker in block.text), None)
@@ -65,8 +68,44 @@ class LogseqWriter:
         diff = "\n".join(difflib.unified_diff([], [line + "\n" for line in new_lines], fromfile="/dev/null", tofile=str(path)))
         return WritePreview(file_path=path, original_sha256="", new_text="\n".join(new_lines) + "\n", diff=diff)
 
+    def preview_append_marker_child(
+        self,
+        file_path: Path,
+        marker: str,
+        content: str,
+        block_uuid: Optional[str] = None,
+        line_start: Optional[int] = None,
+    ) -> WritePreview:
+        marker_text = marker if marker.startswith("**[") else f"**[{marker}]**"
+        body = content.strip()
+        return self.preview_append_child(file_path, f"{marker_text} {body}".rstrip(), block_uuid=block_uuid, line_start=line_start)
+
+    def preview_update_task_marker(
+        self,
+        file_path: Path,
+        new_marker: str,
+        block_uuid: Optional[str] = None,
+        line_start: Optional[int] = None,
+    ) -> WritePreview:
+        marker = new_marker.upper()
+        if marker not in {"TODO", "DOING", "DONE", "WAITING"}:
+            raise WriteError(f"Unsupported task marker: {new_marker}")
+        path = Path(file_path).expanduser()
+        self._ensure_inside_graph(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        block = self._resolve_block(path, block_uuid=block_uuid, line_start=line_start)
+        index = block.line_number - 1
+        old_line = lines[index]
+        new_line, count = re.subn(r"^(\s*-\s*)(TODO|DOING|DONE|WAITING)\b", rf"\1{marker}", old_line, count=1)
+        if count != 1:
+            raise WriteError("Target block is not a supported Logseq task marker.")
+        new_lines = list(lines)
+        new_lines[index] = new_line
+        return self._preview(path, lines, new_lines, line_start=block.line_number, block_uuid=block.uuid)
+
     def apply(self, preview: WritePreview, expected_sha256: Optional[str], backup_dir: Path) -> Path:
         path = preview.file_path
+        self._ensure_inside_graph(path)
         if path.exists():
             current = self.sha256(path)
             if expected_sha256 and current != expected_sha256:
@@ -77,6 +116,14 @@ class LogseqWriter:
             backup_path = Path("")
         path.write_text(preview.new_text, encoding="utf-8")
         return backup_path
+
+    def restore_backup(self, backup_path: Path, target_path: Path) -> None:
+        backup = Path(backup_path).expanduser()
+        target = Path(target_path).expanduser()
+        self._ensure_inside_graph(target)
+        if not backup.exists():
+            raise WriteError(f"Backup not found: {backup}")
+        shutil.copy2(backup, target)
 
     def backup(self, path: Path, backup_dir: Path) -> Path:
         backup_dir = Path(backup_dir).expanduser()
@@ -142,3 +189,11 @@ class LogseqWriter:
             line_start=line_start,
             block_uuid=block_uuid,
         )
+
+    def _ensure_inside_graph(self, path: Path) -> None:
+        graph = self.graph_path.resolve()
+        target = Path(path).expanduser().resolve()
+        try:
+            target.relative_to(graph)
+        except ValueError:
+            raise WriteError(f"Refusing to write outside configured Logseq graph: {target}")

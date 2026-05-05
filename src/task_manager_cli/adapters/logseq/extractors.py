@@ -16,12 +16,16 @@ PROJECT_MARKERS = [
     "[阶段]",
     "[子阶段]",
     "[待澄清]",
+    "[成果]",
+    "[无成果]",
 ]
 
 PROJECT_PREFIXES = ("项目-", "任务-", "学习-", "课程-", "阶段-")
-TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE)\b\s*(.*)$")
+TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)\b\s*(.*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
 IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
+SEMANTIC_MARKER_RE = re.compile(r"^(?:\*\*)?\[(想法|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$")
+TAG_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-\u4e00-\u9fff/]+)")
 BLOCK_REF_RE = re.compile(r"\(\(([0-9a-fA-F-]{8,})\)\)")
 EMBED_RE = re.compile(r"\{\{embed\s+\(\(([0-9a-fA-F-]{8,})\)\)\}\}")
 PAGE_REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -104,6 +108,22 @@ def idea_marker(raw: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def semantic_marker(raw: str) -> Optional[str]:
+    text = strip_bullet(raw)
+    match = SEMANTIC_MARKER_RE.match(text)
+    return match.group(1) if match else None
+
+
+def semantic_tags(raw: str) -> List[str]:
+    return [tag.lower() for tag in TAG_RE.findall(strip_bullet(raw))]
+
+
+def is_reference_record(raw: str) -> bool:
+    text = strip_bullet(raw).lower()
+    tags = set(semantic_tags(text))
+    return "reference" in tags or text.startswith("**[reference]**") or text.startswith("[reference]")
+
+
 def suspicious_idea_reason(raw: str) -> Optional[str]:
     text = strip_bullet(raw)
     if re.search(r"\[\[(想法|随想)\]\]", text):
@@ -165,13 +185,20 @@ def role_for_child(text: str) -> str:
     stripped = strip_bullet(text)
     if parse_idea(text):
         return "idea_note"
+    marker = semantic_marker(text)
+    if marker == "注":
+        return "user_annotation"
+    if marker == "AI注":
+        return "ai_annotation"
+    if marker == "待澄清":
+        return "clarification_marker"
+    if marker in {"成果", "无成果"}:
+        return "result_marker"
     if "[反思]" in stripped:
         return "reflection"
     if "[问题]" in stripped:
         return "question"
     if "[部署]" in stripped:
-        return "process_note"
-    if "[注]" in stripped:
         return "process_note"
     if stripped.startswith("CLOCK:") or stripped == ":LOGBOOK:":
         return "process_note"

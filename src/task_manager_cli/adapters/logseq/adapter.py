@@ -12,8 +12,11 @@ from task_manager_cli.adapters.logseq.extractors import (
     page_name_from_path,
     page_refs,
     idea_marker,
+    is_reference_record,
     project_confidence,
     role_for_child,
+    semantic_marker,
+    semantic_tags,
     suspicious_idea_reason,
 )
 from task_manager_cli.adapters.logseq.parser import LogseqBlock, ParsedLogseqFile, parse_logseq_file
@@ -125,6 +128,9 @@ class LogseqAdapter:
             "block_refs": block.block_refs,
             "embeds": block.embeds,
             "page_refs": block.page_refs,
+            "semantic_marker": semantic_marker(block.raw),
+            "semantic_tags": semantic_tags(block.raw),
+            "is_reference": is_reference_record(block.raw),
             "private": self._is_private(block),
         }
         task = block.task
@@ -205,6 +211,8 @@ class LogseqAdapter:
         parsed_task = block.task
         if not parsed_task:
             return
+        if is_reference_record(block.raw):
+            return
         status, title = parsed_task
         source_id = self._block_source_id(block)
         journal_date = journal_date_from_path(parsed.file_path)
@@ -241,6 +249,8 @@ class LogseqAdapter:
     def _extract_idea(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
         title = block.idea_title
         if not title:
+            return
+        if is_reference_record(block.raw):
             return
         source_id = self._block_source_id(block)
         journal_date = journal_date_from_path(parsed.file_path)

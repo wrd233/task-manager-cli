@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -164,11 +164,86 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(target_record_id) REFERENCES source_records(id) ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'suggested',
+            risk TEXT NOT NULL DEFAULT 'low',
+            target_object_id INTEGER,
+            target_record_id INTEGER,
+            review_session_id INTEGER,
+            source TEXT NOT NULL DEFAULT 'agent',
+            rationale TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            applied_record_json TEXT,
+            rollback_record_json TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            accepted_at TEXT,
+            rejected_at TEXT,
+            applied_at TEXT,
+            rolled_back_at TEXT,
+            FOREIGN KEY(target_object_id) REFERENCES objects(id) ON DELETE SET NULL,
+            FOREIGN KEY(target_record_id) REFERENCES source_records(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS proposal_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT 'user',
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(proposal_id) REFERENCES proposals(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS review_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            title TEXT,
+            scope_json TEXT NOT NULL DEFAULT '{}',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS review_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_session_id INTEGER NOT NULL,
+            object_id INTEGER,
+            record_id INTEGER,
+            item_ref TEXT,
+            role TEXT NOT NULL DEFAULT 'candidate',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(review_session_id) REFERENCES review_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY(object_id) REFERENCES objects(id) ON DELETE SET NULL,
+            FOREIGN KEY(record_id) REFERENCES source_records(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS review_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_session_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT 'user',
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(review_session_id) REFERENCES review_sessions(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_objects_type ON objects(object_type);
         CREATE INDEX IF NOT EXISTS idx_objects_status ON objects(status);
         CREATE INDEX IF NOT EXISTS idx_records_type ON source_records(record_type);
         CREATE INDEX IF NOT EXISTS idx_annotations_target ON annotations(target_object_id, target_record_id);
         CREATE INDEX IF NOT EXISTS idx_write_proposals_status ON write_proposals(status);
+        CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
+        CREATE INDEX IF NOT EXISTS idx_proposals_review ON proposals(review_session_id);
+        CREATE INDEX IF NOT EXISTS idx_review_sessions_status ON review_sessions(status);
+        CREATE INDEX IF NOT EXISTS idx_review_items_session ON review_items(review_session_id);
         """
     )
     conn.execute(
