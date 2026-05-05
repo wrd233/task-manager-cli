@@ -8,6 +8,7 @@ from task_manager_cli.adapters.logseq.adapter import LogseqAdapter
 from task_manager_cli.adapters.logseq.parser import parse_logseq_file
 from task_manager_cli.adapters.logseq.resolver import LogseqResolver
 from task_manager_cli.annotations.service import AnnotationService
+from task_manager_cli.clarify.service import ClarifyService
 from task_manager_cli.config.settings import Settings, default_config_path, init_settings
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
 from task_manager_cli.ingest.sync import SyncService
@@ -302,6 +303,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = proposal_sub.add_parser("reject", help="Reject a suggested proposal.")
     p.add_argument("proposal_id", type=int)
     p.set_defaults(handler=cmd_proposal_reject)
+    p = proposal_sub.add_parser("edit", help="Edit a suggested or edited proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.add_argument("--title")
+    p.add_argument("--content")
+    p.add_argument("--marker")
+    p.add_argument("--task-marker", choices=["TODO", "DOING", "DONE", "WAITING"])
+    p.add_argument("--risk", choices=["low", "medium", "high"])
+    p.add_argument("--rationale")
+    p.set_defaults(handler=cmd_proposal_edit)
+    p = proposal_sub.add_parser("supersede", help="Mark a proposal as superseded by another proposal.")
+    p.add_argument("proposal_id", type=int)
+    p.add_argument("--with", dest="new_proposal_id", type=int, required=True)
+    p.set_defaults(handler=cmd_proposal_supersede)
     p = proposal_sub.add_parser("apply", help="Apply an accepted proposal.")
     p.add_argument("proposal_id", type=int)
     p.add_argument("--yes", action="store_true", help="Confirm guarded Logseq writeback.")
@@ -335,7 +349,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("review_id", type=int)
     p.add_argument("--cancel", action="store_true")
     p.set_defaults(handler=cmd_review_close)
+
+    clarify = sub.add_parser("clarify", help="Run a question-style clarify review.")
+    clarify_sub = clarify.add_subparsers(dest="clarify_command")
+    for name in ("selected", "inbox", "today"):
+        p = clarify_sub.add_parser(name, help=f"Clarify {name} candidates.")
+        if name == "selected":
+            p.add_argument("--ids", nargs="+", required=True)
+        else:
+            p.add_argument("--limit", type=int, default=10)
+        _add_clarify_common_args(p)
+        p.set_defaults(handler=cmd_clarify_selected if name == "selected" else (cmd_clarify_inbox if name == "inbox" else cmd_clarify_today))
+    p = clarify_sub.add_parser("project", help="Clarify lightweight candidates under a project.")
+    p.add_argument("project")
+    p.add_argument("--limit", type=int, default=10)
+    _add_clarify_common_args(p)
+    p.set_defaults(handler=cmd_clarify_project)
+    p = clarify_sub.add_parser("resume", help="Resume a clarify review session.")
+    p.add_argument("review_id", type=int)
+    _add_clarify_common_args(p)
+    p.set_defaults(handler=cmd_clarify_resume)
+    p = clarify_sub.add_parser("status", help="Show clarify review status.")
+    p.add_argument("review_id", type=int)
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_clarify_status)
     return parser
+
+
+def _add_clarify_common_args(p) -> None:
+    p.add_argument("--provider", default="mock", help="mock, dry-run, openai-compatible/deepseek, or configured provider name.")
+    p.add_argument("--answer", help="Non-interactive freeform answer to record for each item.")
+    p.add_argument("--skip", help="Skip selected candidates with this reason.")
+    p.add_argument("--payload-preview", action="store_true", help="Show redacted provider payload preview and do not call remote provider.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
 
 
 def _settings() -> Settings:
@@ -390,6 +436,16 @@ def cmd_config_show(args) -> str:
         "write_backup_dir": str(settings.write_backup_dir) if settings.write_backup_dir else None,
         "write_require_confirm": settings.write_require_confirm,
         "allowed_write_operations": settings.allowed_write_operations,
+        "provider": {
+            "name": settings.provider_name,
+            "base_url": settings.provider_base_url,
+            "model": settings.provider_model,
+            "timeout": settings.provider_timeout,
+            "max_tokens": settings.provider_max_tokens,
+            "prompt_version": settings.provider_prompt_version,
+            "api_key_loaded": bool(settings.provider_api_key),
+            "api_key_value": "[hidden]" if settings.provider_api_key else None,
+        },
     }
     return to_json(data)
 
@@ -773,6 +829,28 @@ def cmd_proposal_reject(args) -> str:
     return to_json({"proposal_id": args.proposal_id, "status": "rejected"})
 
 
+def cmd_proposal_edit(args) -> str:
+    conn = _conn()
+    data = ProposalService(conn, _settings()).edit(
+        args.proposal_id,
+        title=args.title,
+        content=args.content,
+        marker=args.marker,
+        task_marker=args.task_marker,
+        risk=args.risk,
+        rationale=args.rationale,
+    )
+    conn.commit()
+    return to_json(data)
+
+
+def cmd_proposal_supersede(args) -> str:
+    conn = _conn()
+    ProposalService(conn, _settings()).supersede(args.proposal_id, args.new_proposal_id)
+    conn.commit()
+    return to_json({"proposal_id": args.proposal_id, "status": "superseded", "with": args.new_proposal_id})
+
+
 def cmd_proposal_apply(args) -> str:
     settings = _settings()
     conn = _conn(settings)
@@ -820,6 +898,105 @@ def cmd_review_close(args) -> str:
     ReviewSessionService(conn).close(args.review_id, cancelled=args.cancel)
     conn.commit()
     return to_json({"review_id": args.review_id, "status": "cancelled" if args.cancel else "completed"})
+
+
+def _clarify_service(conn=None):
+    settings = _settings()
+    return ClarifyService(conn or _conn(settings), settings)
+
+
+def _format_clarify_result(data: Dict[str, Any], fmt: str) -> str:
+    if fmt == "json":
+        return to_json(data)
+    lines = [f"# Clarify Review {data.get('review_id')}", "", data.get("table", "")]
+    if data.get("payload_previews"):
+        lines.extend(["", "## Payload Preview", "```json", to_json(data["payload_previews"]), "```"])
+    return "\n".join(lines)
+
+
+def _split_ids(values) -> list:
+    ids = []
+    for value in values or []:
+        ids.extend([item for item in str(value).split(",") if item])
+    return ids
+
+
+def cmd_clarify_selected(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).start_selected(
+        _split_ids(args.ids),
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
+def cmd_clarify_inbox(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).start_inbox(
+        limit=args.limit,
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
+def cmd_clarify_today(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).start_today(
+        limit=args.limit,
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
+def cmd_clarify_project(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).start_project(
+        args.project,
+        limit=args.limit,
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
+def cmd_clarify_resume(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    data = ClarifyService(conn, settings).resume(
+        args.review_id,
+        answer=args.answer,
+        skip_reason=args.skip,
+        provider_name=args.provider,
+        dry_run_preview=args.payload_preview,
+    )
+    conn.commit()
+    return _format_clarify_result(data, args.format)
+
+
+def cmd_clarify_status(args) -> str:
+    data = ReviewSessionService(_conn()).show(args.review_id)
+    if args.format == "json":
+        return to_json(data)
+    return f"# Clarify Review {args.review_id}\n\nstatus: {data.get('status')}\nitems: {len(data.get('items', []))}\nproposals: {len(data.get('proposals', []))}"
 
 
 if __name__ == "__main__":

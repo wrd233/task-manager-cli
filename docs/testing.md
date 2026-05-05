@@ -6,7 +6,7 @@
 python3 -m pytest
 ```
 
-测试 fixture 位于 `tests/fixtures/logseq_graph/`，包含：
+测试 fixture 位于 `tests/fixtures/logseq_graph/` ，包含：
 
 - 项目页 `pages/项目-Alpha.md`
 - 项目页 `pages/项目-韩国旅行.md`
@@ -21,7 +21,7 @@ python3 -m pytest
 覆盖语法：
 
 - `PARA:: [[PARA/Project]]`
-- `[具体目标]`、`[具体事务]`、`[头脑风暴]`、`[反思]`
+- `[具体目标]` 、 `[具体事务]` 、 `[头脑风暴]` 、 `[反思]`
 - TODO / DONE
 - `[想法]` / `[随想]`
 - Task 下方子块过程记录
@@ -50,4 +50,5 @@ python3 -m pytest
 - extraction-quality report
 - human-facing `tm view ...` short output
 
-新增回归样例时优先扩展 fixture，再补测试断言。对抽取 bug，至少断言对象标题、definition record、canonical location 和 relation。
+新增回归样例时优先扩展 fixture，再补测试断言。对抽取 bug，至少断言对象标题、definition
+record、canonical location 和 relation。

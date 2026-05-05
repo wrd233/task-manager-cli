@@ -113,7 +113,7 @@ Claude Code 在本项目里必须遵守以下边界：
 - 不默认执行 `tm annotation add`
 - 不默认执行 `tm write apply`
 - 不默认执行任何 `--no-redact`
-- 优先使用 `tm agent ...`，而不是自己去拼接大范围原始记录
+- 优先使用 `tm agent ...` ，而不是自己去拼接大范围原始记录
 
 ## 为什么优先用 `tm agent ...`
 
@@ -125,11 +125,12 @@ Claude Code 在本项目里必须遵守以下边界：
 - `tm agent project-context`
 - `tm agent inbox-context`
 
-不要直接把全量导出、全量项目列表或原始 Logseq dump 当作默认输入。那样既更重，也更容易模糊“CLI 提供事实、Agent 负责解释”的边界。
+不要直接把全量导出、全量项目列表或原始 Logseq dump 当作默认输入。那样既更重，也更容易模糊“CLI
+提供事实、Agent 负责解释”的边界。
 
 ## Annotation 原则
 
-如果用户要求“保存判断”“记录建议”“沉淀批注”，应使用 `tm annotation ...`。
+如果用户要求“保存判断”“记录建议”“沉淀批注”，应使用 `tm annotation ...` 。
 
 批注写入位置是 `task-manager-cli` 内部数据库，而不是 Logseq 原始 Markdown。这样可以保持：
 

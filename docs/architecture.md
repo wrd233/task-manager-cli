@@ -4,7 +4,8 @@
 
 ## Layers
 
-- Core：`ActionObject`、`SourceRecord`、`Location`、`Relation`、`Annotation` 等通用模型。
+- Core： `ActionObject` 、 `SourceRecord` 、 `Location` 、 `Relation` 、 `Annotation`
+  等通用模型。
 - Adapter：读取外部来源，输出标准候选数据。Logseq 只是第一个 adapter，不是核心模型。
 - Ingest / Merge：把候选对象、记录、位置、关系幂等写入 SQLite。
 - Storage：SQLite schema、repository、sync run 和 proposal 状态。
@@ -26,4 +27,4 @@
 - 每个抽取出的 ActionObject 必须有 `definition` SourceRecord。
 - object canonical location 必须来自 definition SourceRecord location。
 - related records 必须使用 role 区分，不能冒充 definition。
-- source/location mismatch 会进入 `tm report extraction-quality`。
+- source/location mismatch 会进入 `tm report extraction-quality` 。

@@ -172,7 +172,75 @@ class ProposalService:
         self._transition(proposal_id, ProposalStatus.SUGGESTED.value, ProposalStatus.ACCEPTED.value, "accepted", actor)
 
     def reject(self, proposal_id: int, actor: str = "user") -> None:
-        self._transition(proposal_id, ProposalStatus.SUGGESTED.value, ProposalStatus.REJECTED.value, "rejected", actor)
+        proposal = self.get(proposal_id)
+        if proposal["status"] not in {ProposalStatus.SUGGESTED.value, ProposalStatus.EDITED.value}:
+            raise TaskManagerError(f"Proposal {proposal_id} is not suggested or edited.")
+        self.conn.execute(
+            "UPDATE proposals SET status='rejected', updated_at=CURRENT_TIMESTAMP, rejected_at=CURRENT_TIMESTAMP WHERE id=?",
+            (proposal_id,),
+        )
+        self._event(proposal_id, "rejected", actor, {})
+
+    def edit(
+        self,
+        proposal_id: int,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        marker: Optional[str] = None,
+        task_marker: Optional[str] = None,
+        risk: Optional[str] = None,
+        rationale: Optional[str] = None,
+        actor: str = "user",
+    ) -> Dict[str, Any]:
+        proposal = self.get(proposal_id)
+        if proposal["status"] in {ProposalStatus.APPLIED.value, ProposalStatus.ROLLED_BACK.value}:
+            raise TaskManagerError("Applied or rolled-back proposals cannot be edited in place.")
+        before = {
+            "title": proposal["title"],
+            "risk": proposal["risk"],
+            "rationale": proposal.get("rationale"),
+            "payload": proposal["payload"],
+        }
+        payload = dict(proposal["payload"])
+        if content is not None:
+            payload["content"] = content
+        if marker is not None:
+            payload["marker"] = normalize_marker(marker)
+        if task_marker is not None:
+            payload["new_marker"] = task_marker.upper()
+        new_risk = risk or proposal["risk"]
+        if new_risk not in {item.value for item in ProposalRisk}:
+            raise ValueError(f"Unsupported proposal risk: {new_risk}")
+        self.conn.execute(
+            """
+            UPDATE proposals
+            SET title=?, risk=?, rationale=?, payload_json=?, status='edited', updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                title if title is not None else proposal["title"],
+                new_risk,
+                rationale if rationale is not None else proposal.get("rationale"),
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                proposal_id,
+            ),
+        )
+        self._event(proposal_id, "edited", actor, {"before": before, "after": {"title": title, "risk": new_risk, "rationale": rationale, "payload": payload}})
+        return self.get(proposal_id)
+
+    def supersede(self, proposal_id: int, new_proposal_id: int, actor: str = "user") -> None:
+        old = self.get(proposal_id)
+        new = self.get(new_proposal_id)
+        if old["status"] == ProposalStatus.APPLIED.value:
+            raise TaskManagerError("Applied proposals cannot be superseded.")
+        cur = self.conn.execute(
+            "UPDATE proposals SET status='superseded', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status!='applied'",
+            (proposal_id,),
+        )
+        if cur.rowcount == 0:
+            raise TaskManagerError(f"Proposal {proposal_id} cannot be superseded.")
+        self._event(proposal_id, "superseded", actor, {"with": new_proposal_id})
+        self._event(new_proposal_id, "supersedes", actor, {"old": proposal_id, "old_title": old["title"], "new_title": new["title"]})
 
     def apply(self, proposal_id: int, confirmed: bool = False, actor: str = "user") -> Dict[str, Any]:
         proposal = self.get(proposal_id)
@@ -295,6 +363,15 @@ class ProposalService:
             raise ConfigError("Logseq writeback requires preview/diff before apply. Run `tm proposal show <id> --preview` first.")
 
     def _transition(self, proposal_id: int, from_status: str, to_status: str, event: str, actor: str) -> None:
+        if event == "accepted":
+            cur = self.conn.execute(
+                "UPDATE proposals SET status=?, updated_at=CURRENT_TIMESTAMP, accepted_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('suggested', 'edited')",
+                (to_status, proposal_id),
+            )
+            if cur.rowcount == 0:
+                raise TaskManagerError(f"Proposal {proposal_id} is not suggested or edited.")
+            self._event(proposal_id, event, actor, {})
+            return
         cur = self.conn.execute(
             f"UPDATE proposals SET status=?, updated_at=CURRENT_TIMESTAMP, {event}_at=CURRENT_TIMESTAMP WHERE id=? AND status=?",
             (to_status, proposal_id, from_status),

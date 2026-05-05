@@ -36,22 +36,27 @@ tm agent inbox-context --days 30 --format json
 
 单对象 context 包含：
 
-- `objects`: 对象元信息和原始位置。
-- `records`: definition、child records、process notes、idea notes。
-- `relations`: belongs_to / references 等对象关系。
-- `annotations`: 当前对象已有批注。
-- `truncation`: 输出截断策略。
-- `redaction`: 脱敏是否启用和数量。
+- `objects` : 对象元信息和原始位置。
+- `records` : definition、child records、process notes、idea notes。
+- `relations` : belongs_to / references 等对象关系。
+- `annotations` : 当前对象已有批注。
+- `truncation` : 输出截断策略。
+- `redaction` : 脱敏是否启用和数量。
 
 ## Agent Views
 
-`today-context` 面向“今天该看什么”的外部 Agent，提供最近 journal 中出现的 task/idea、近期未完成任务、活跃项目、活动字段和 annotations。CLI 不输出最终优先级结论。
+`today-context` 面向“今天该看什么”的外部 Agent，提供最近 journal 中出现的
+task/idea、近期未完成任务、活跃项目、活动字段和 annotations。CLI 不输出最终优先级结论。
 
-`project-context <project>` 面向项目诊断，包含项目元信息、任务统计、未完成任务、最近完成任务、最近 idea、relations、journal exposures 和事实性 signals。
+`project-context <project>`
+面向项目诊断，包含项目元信息、任务统计、未完成任务、最近完成任务、最近 idea、relations、journal
+exposures 和事实性 signals。
 
-`inbox-context` 面向想法 inbox，包含无 project/task relation 的 idea、可能关联候选和 suspicious ideas。
+`inbox-context` 面向想法 inbox，包含无 project/task relation 的 idea、可能关联候选和 suspicious
+ideas。
 
-Human-facing `tm view ...` 是另一层：它不面向 Agent，不输出 JSON，不展开完整 evidence。Agent 应继续使用 `tm agent ...` 或 `tm report ...`。
+Human-facing `tm view ...` 是另一层：它不面向 Agent，不输出 JSON，不展开完整 evidence。Agent
+应继续使用 `tm agent ...` 或 `tm report ...` 。
 
 通用选项：
 
@@ -107,8 +112,9 @@ tm config set-write-mode guarded
 tm write apply 1 --yes
 ```
 
-Agent 不应直接任意修改 Logseq。第一版仅允许 append-only：追加子块、追加到 page section、创建新 page。
+Agent 不应直接任意修改 Logseq。第一版仅允许 append-only：追加子块、追加到 page section、创建新
+page。
 
 ## 隐私默认值
 
-Agent context 默认脱敏。需要本地人工排查时可加 `--no-redact`，但不建议给外部模型使用。
+Agent context 默认脱敏。需要本地人工排查时可加 `--no-redact` ，但不建议给外部模型使用。

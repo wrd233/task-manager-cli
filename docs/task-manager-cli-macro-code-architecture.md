@@ -1,10 +1,11 @@
 # task-manager-cli 宏观代码架构设计说明
 
-> 版本：v0.1  
-> 读者：Codex / Claude Code / 后续接手开发的代码 Agent  
-> 定位：宏观代码层设计，不是完整工程规格，不限定所有类名、函数签名、数据库表结构或实现细节。  
->
-> 本文的目标是：让代码 Agent 理解 `task-manager-cli` 接下来应该如何从“Logseq 行动对象索引器”演进为“个人行动系统”的工程结构，而不是直接替它完成所有细节设计。
+> 版本：v0.1
+> 读者：Codex / Claude Code / 后续接手开发的代码 Agent
+> 定位：宏观代码层设计，不是完整工程规格，不限定所有类名、函数签名、数据库表结构或实现细节。
+
+> 本文的目标是：让代码 Agent 理解 `task-manager-cli` 接下来应该如何从“Logseq
+> 行动对象索引器”演进为“个人行动系统”的工程结构，而不是直接替它完成所有细节设计。
 
 ---
 
@@ -14,7 +15,8 @@
 
 它的长期定位是：
 
-> 以 CLI 为主要入口、以 Logseq 为自然记录现场、以行动条目为第一公民、以 Clarify / Review / Proposal 为核心流转机制、以项目语义树和成果标注为组织方式的个人行动系统。
+> 以 CLI 为主要入口、以 Logseq 为自然记录现场、以行动条目为第一公民、以 Clarify / Review /
+> Proposal 为核心流转机制、以项目语义树和成果标注为组织方式的个人行动系统。
 
 因此，代码架构应服务于以下目标：
 
@@ -38,7 +40,7 @@ Logseq adapter 只负责理解 Logseq 格式：
 - Markdown block tree；
 - Daily Log；
 - TODO / DOING / DONE / WAITING；
-- 行首标注，如 `[想法]`、`[待澄清]`、`[成果]`、`[注]`；
+- 行首标注，如 `[想法]` 、 `[待澄清]` 、 `[成果]` 、 `[注]` ；
 - 项目页属性；
 - 项目页结构；
 - block ref / page ref；
@@ -149,7 +151,7 @@ Core 负责定义系统理解世界的基本对象。
 - Project；
 - Project Node；
 - Resource / Reference；
-- Result Marker，即 `[成果]` / `[无成果]`；
+- Result Marker，即 `[成果]` / `[无成果]` ；
 - Annotation；
 - Proposal；
 - Review Session；
@@ -161,7 +163,7 @@ Core 负责定义系统理解世界的基本对象。
 - Reference 不应简单作为 Action Item，而更像资源；
 - Idea 可以是行动条目的一种语义，也可以作为设计型对象长期保留；
 - 小任务独立于 Project，可以存在于日记，也可以挂载到 Project / Project Node；
-- Project 在 Logseq 中应对应项目页和 `PARA:: [[PARA/Project]]`；
+- Project 在 Logseq 中应对应项目页和 `PARA:: [[PARA/Project]]` ；
 - `[成果]` 是用户层面的统一成果表达，不要过早拆成大量复杂对象。
 
 Core 不要关心 Markdown 怎么解析，也不要关心具体 CLI 命令怎么写。
@@ -188,8 +190,8 @@ Adapter 负责把不同来源转成系统可理解的候选数据。
 - block refs；
 - page refs；
 - 子块层级；
-- `[成果]` / `[无成果]`；
-- `[注]` / `[AI注]`；
+- `[成果]` / `[无成果]` ；
+- `[注]` / `[AI注]` ；
 - `#inbox` / `#waiting` / `#someday` 等轻标签；
 - Source / Location。
 
@@ -344,8 +346,8 @@ Proposal 可以建议：
 - 关联 Project Node；
 - 创建项目树节点；
 - 调整项目树；
-- 写回 `[AI注]`；
-- 添加 `[成果]` 或 `[无成果]`；
+- 写回 `[AI注]` ；
+- 添加 `[成果]` 或 `[无成果]` ；
 - 关联文件；
 - 归档；
 - 合并；
@@ -367,14 +369,14 @@ Proposal 必须可追溯，且需要支持回滚或撤销。
 
 ## 4.8 Annotation：批注层
 
-Annotation 更接近用户笔记中的 `[注]`。
+Annotation 更接近用户笔记中的 `[注]` 。
 
 它不是主要给 AI 大量写评论的系统。
 
 需要区分：
 
-- `[注]`：用户批注；
-- `[AI注]`：AI 批注。
+- `[注]` ：用户批注；
+- `[AI注]` ：AI 批注。
 
 AI 注应该：
 
@@ -413,11 +415,12 @@ Project 层负责：
 
 重要需求：
 
-1. Logseq 中的 Project 应对应项目页和 `PARA:: [[PARA/Project]]`。
+1. Logseq 中的 Project 应对应项目页和 `PARA:: [[PARA/Project]]` 。
 2. 小任务可以独立存在，也可以挂到 Project / Project Node。
 3. 项目语义树是一等对象，但不要求所有项目都有复杂树。
 4. 项目语义树倾向与 Logseq 项目页结构同步。
-5. 树节点优先使用行首标识表达，例如 `[目标]`、`[里程碑]`、`[工作流]`、`[小任务]`、`[资源]`、`[成果]`。
+5. 树节点优先使用行首标识表达，例如
+`[目标]` 、 `[里程碑]` 、 `[工作流]` 、 `[小任务]` 、 `[资源]` 、 `[成果]` 。
 6. 项目结构以树为主，引用和 relation 作为补充。
 7. AI 可提出项目树新增、修改、删除、移动建议，但全部作为 Proposal。
 
@@ -450,7 +453,7 @@ Objective / Key Result / Milestone 可以支持，但不应成为每个项目的
 
 成果层应负责：
 
-- 识别 DONE 下是否存在 `[成果]` 或 `[无成果]`；
+- 识别 DONE 下是否存在 `[成果]` 或 `[无成果]` ；
 - 在 Review 中提醒缺少成果标注；
 - 识别 `[成果]` 中的文件路径、链接、文档、经验；
 - 支持用户显式触发经验卡片生成；
@@ -675,8 +678,8 @@ Codex 接手时建议先读：
 
 1. README.md；
 2. 当前 docs；
-3. `task-manager-cli-action-flow-system-design.md`；
-4. `task-manager-cli-requirements-supplement-v0.2.md`；
+3. `task-manager-cli-action-flow-system-design.md` ；
+4. `task-manager-cli-requirements-supplement-v0.2.md` ；
 5. 当前代码目录；
 6. tests；
 7. 当前 CLI help。
@@ -707,4 +710,5 @@ CLI 只负责编排。
 
 本系统最需要守住的第一性原则是：
 
-> 自然记录不被破坏，行动条目能够流转，AI 建议必须可审核，成果必须能沉淀，用户始终拥有最终确认权。
+> 自然记录不被破坏，行动条目能够流转，AI
+> 建议必须可审核，成果必须能沉淀，用户始终拥有最终确认权。

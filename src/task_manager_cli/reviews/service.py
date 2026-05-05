@@ -35,6 +35,40 @@ class ReviewSessionService:
         )
         self._event(review_id, "item_added", actor, {"item_ref": item_ref, "object_id": object_id, "record_id": record_id})
 
+    def set_item_metadata(self, review_item_id: int, metadata: Dict[str, Any], actor: str = "system") -> None:
+        item = self._get_item(review_item_id)
+        self.conn.execute(
+            "UPDATE review_items SET metadata_json=? WHERE id=?",
+            (json.dumps(metadata, ensure_ascii=False, sort_keys=True), review_item_id),
+        )
+        self._event(item["review_session_id"], "item_metadata_updated", actor, {"review_item_id": review_item_id, "clarify_status": metadata.get("clarify", {}).get("status")})
+
+    def update_item_clarify(self, review_item_id: int, patch: Dict[str, Any], actor: str = "system") -> Dict[str, Any]:
+        item = self._get_item(review_item_id)
+        metadata = dict(item["metadata"])
+        clarify = dict(metadata.get("clarify") or {})
+        clarify.update(patch)
+        metadata["clarify"] = clarify
+        self.set_item_metadata(review_item_id, metadata, actor=actor)
+        return metadata
+
+    def record_answer(self, review_item_id: int, question_id: str, question: str, answer: str, actor: str = "user") -> None:
+        item = self._get_item(review_item_id)
+        metadata = dict(item["metadata"])
+        clarify = dict(metadata.get("clarify") or {})
+        answers = list(clarify.get("answers") or [])
+        answers.append({"question_id": question_id, "question": question, "answer": answer})
+        clarify["answers"] = answers
+        clarify["status"] = "answered"
+        metadata["clarify"] = clarify
+        self.set_item_metadata(review_item_id, metadata, actor=actor)
+        self._event(item["review_session_id"], "clarify_answered", actor, {"review_item_id": review_item_id, "question_id": question_id})
+
+    def skip_item(self, review_item_id: int, reason: str = "", actor: str = "user") -> None:
+        item = self._get_item(review_item_id)
+        self.update_item_clarify(review_item_id, {"status": "skipped", "skip_reason": reason}, actor=actor)
+        self._event(item["review_session_id"], "clarify_skipped", actor, {"review_item_id": review_item_id, "reason": reason})
+
     def attach_proposal(self, review_id: int, proposal_id: int, actor: str = "user") -> None:
         self._ensure_exists(review_id)
         cur = self.conn.execute("UPDATE proposals SET review_session_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (review_id, proposal_id))
@@ -62,6 +96,11 @@ class ReviewSessionService:
         data["events"] = [self._event_row(item) for item in self.conn.execute("SELECT * FROM review_events WHERE review_session_id=? ORDER BY id", (review_id,)).fetchall()]
         return data
 
+    def pending_clarify_items(self, review_id: int) -> List[Dict[str, Any]]:
+        self._ensure_exists(review_id)
+        items = [self._item_row(item) for item in self.conn.execute("SELECT * FROM review_items WHERE review_session_id=? ORDER BY id", (review_id,)).fetchall()]
+        return [item for item in items if (item.get("metadata", {}).get("clarify", {}).get("status") or "pending") in {"pending", "asked", "answered", "failed"}]
+
     def proposals(self, review_id: int) -> List[Dict[str, Any]]:
         self._ensure_exists(review_id)
         return [self._proposal_row(row) for row in self.conn.execute("SELECT * FROM proposals WHERE review_session_id=? ORDER BY id", (review_id,)).fetchall()]
@@ -83,6 +122,12 @@ class ReviewSessionService:
     def _ensure_exists(self, review_id: int) -> None:
         if not self.conn.execute("SELECT 1 FROM review_sessions WHERE id=?", (review_id,)).fetchone():
             raise NotFoundError(f"Review session not found: {review_id}")
+
+    def _get_item(self, review_item_id: int) -> Dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM review_items WHERE id=?", (review_item_id,)).fetchone()
+        if not row:
+            raise NotFoundError(f"Review item not found: {review_item_id}")
+        return self._item_row(row)
 
     def _event(self, review_id: int, event_type: str, actor: str, details: Dict[str, Any]) -> None:
         self.conn.execute(

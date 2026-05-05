@@ -10,6 +10,8 @@ venv/
 .env
 .env.*
 !.env.example
+*.local
+config.local.*
 *.local.json
 local-config.json
 *.sqlite3
