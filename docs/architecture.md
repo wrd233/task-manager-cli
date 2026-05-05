@@ -9,6 +9,7 @@
 - Ingest / Merge：把候选对象、记录、位置、关系幂等写入 SQLite。
 - Storage：SQLite schema、repository、sync run 和 proposal 状态。
 - Query / Context：对象查询、Agent context、抽取质量报告、脱敏。
+- View：人类可读短视图，复用 Query / AgentView 的底层查询，不复制抽取逻辑。
 - CLI：参数解析和 service 编排，不堆业务逻辑。
 
 ## Boundaries
@@ -18,6 +19,7 @@
 - Query 不直接扫描 Logseq 原文件。
 - Annotation 写 CLI 内部数据库，不写回 Logseq。
 - 写入 Logseq 默认禁用；开启后也只允许受限 append-only proposal/apply。
+- `tm view ...` 只读，不写 annotation，不写 Logseq，不做最终优先级判断。
 
 ## Object Invariants
 

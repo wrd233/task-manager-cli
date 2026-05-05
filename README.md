@@ -58,6 +58,19 @@ tm show 12
 tm context 12 --format markdown
 ```
 
+人类短视图：
+
+```bash
+tm view today
+tm view projects --limit 20
+tm view project 项目-韩国旅行 --detail
+tm view tasks --brief
+tm view ideas
+tm view inbox
+```
+
+`view` 面向人快速扫一眼，默认短输出，不展示 JSON、metadata、confidence 或完整 linked records。需要完整上下文时再用 `tm show <id>` / `tm context <id>`。
+
 Agent 上下文：
 
 ```bash
@@ -123,6 +136,7 @@ tm write reject 1
 - `src/task_manager_cli/ingest/`：候选数据到 SQLite 的幂等合并。
 - `src/task_manager_cli/storage/`：SQLite schema、连接和 repository。
 - `src/task_manager_cli/query/`：对象查询、context package、Agent context。
+- `src/task_manager_cli/query/human_views.py`：人类可读短视图，复用 query / agent view 底层能力。
 - `src/task_manager_cli/annotations/`：批注新增、查询、状态更新。
 - `src/task_manager_cli/privacy/`：默认脱敏和用户敏感规则。
 - `src/task_manager_cli/cli/`：命令入口，只做参数编排。

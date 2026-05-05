@@ -15,6 +15,7 @@ from task_manager_cli.output.formatters import format_output, objects_table, to_
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.query.agent_views import AgentViewService
 from task_manager_cli.query.exporter import SnapshotExporter
+from task_manager_cli.query.human_views import HumanViewService
 from task_manager_cli.query.service import QueryService
 from task_manager_cli.storage.database import connect, init_db
 from task_manager_cli.storage.repositories import Repository
@@ -175,6 +176,27 @@ def build_parser() -> argparse.ArgumentParser:
     p = report_sub.add_parser("extraction-quality", help="Show extraction quality diagnostics.")
     p.add_argument("--format", choices=["json", "markdown"], default="markdown")
     p.set_defaults(handler=cmd_report_extraction_quality)
+
+    view = sub.add_parser("view", help="Short human-readable views.")
+    view_sub = view.add_subparsers(dest="view_command")
+    for name, handler, default_limit in (
+        ("today", cmd_view_today, 12),
+        ("projects", cmd_view_projects, 20),
+        ("tasks", cmd_view_tasks, 20),
+        ("ideas", cmd_view_ideas, 20),
+        ("inbox", cmd_view_inbox, 20),
+    ):
+        p = view_sub.add_parser(name, help=f"Show {name} view.")
+        p.add_argument("--brief", dest="detail", action="store_false", default=False)
+        p.add_argument("--detail", dest="detail", action="store_true")
+        p.add_argument("--limit", type=int, default=default_limit)
+        p.set_defaults(handler=handler)
+    p = view_sub.add_parser("project", help="Show one project view.")
+    p.add_argument("project")
+    p.add_argument("--brief", dest="detail", action="store_false", default=False)
+    p.add_argument("--detail", dest="detail", action="store_true")
+    p.add_argument("--limit", type=int, default=12)
+    p.set_defaults(handler=cmd_view_project)
 
     debug = sub.add_parser("debug", help="Debug Logseq parsing and storage.")
     debug_sub = debug.add_subparsers(dest="debug_command")
@@ -368,6 +390,11 @@ def _agent_view_service():
     return AgentViewService(_conn(settings), sensitive_patterns=settings.sensitive_patterns)
 
 
+def _human_view_service():
+    settings = _settings()
+    return HumanViewService(_conn(settings), sensitive_patterns=settings.sensitive_patterns)
+
+
 def _format_agent_view(data, fmt: str) -> str:
     if fmt == "json":
         return to_json(data)
@@ -481,6 +508,30 @@ def cmd_report_extraction_quality(args) -> str:
     service = _agent_view_service()
     data = service.extraction_quality_report()
     return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_view_today(args) -> str:
+    return _human_view_service().today(limit=args.limit, detail=args.detail)
+
+
+def cmd_view_projects(args) -> str:
+    return _human_view_service().projects(limit=args.limit, detail=args.detail)
+
+
+def cmd_view_project(args) -> str:
+    return _human_view_service().project(args.project, limit=args.limit, detail=args.detail)
+
+
+def cmd_view_tasks(args) -> str:
+    return _human_view_service().tasks(limit=args.limit, detail=args.detail)
+
+
+def cmd_view_ideas(args) -> str:
+    return _human_view_service().ideas(limit=args.limit, detail=args.detail)
+
+
+def cmd_view_inbox(args) -> str:
+    return _human_view_service().inbox(limit=args.limit, detail=args.detail)
 
 
 def cmd_export_snapshot(args) -> str:

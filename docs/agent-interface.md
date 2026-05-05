@@ -51,6 +51,8 @@ tm agent inbox-context --days 30 --format json
 
 `inbox-context` 面向想法 inbox，包含无 project/task relation 的 idea、可能关联候选和 suspicious ideas。
 
+Human-facing `tm view ...` 是另一层：它不面向 Agent，不输出 JSON，不展开完整 evidence。Agent 应继续使用 `tm agent ...` 或 `tm report ...`。
+
 通用选项：
 
 ```bash

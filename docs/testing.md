@@ -48,5 +48,6 @@ python3 -m pytest
 - source/location/definition consistency
 - Agent today/project/inbox context
 - extraction-quality report
+- human-facing `tm view ...` short output
 
 新增回归样例时优先扩展 fixture，再补测试断言。对抽取 bug，至少断言对象标题、definition record、canonical location 和 relation。
