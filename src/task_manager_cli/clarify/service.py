@@ -7,6 +7,7 @@ from task_manager_cli.core.enums import ProposalStatus, ProposalType
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.proposals.service import ProposalService, classify_risk
+from task_manager_cli.projects.tree import ProjectTreeService
 from task_manager_cli.providers.base import (
     DryRunProvider,
     ProviderConfigError,
@@ -26,6 +27,8 @@ BASIC_QUESTIONS = [
     {"id": "waiting", "text": "它是否需要等待别人或外部条件？"},
     {"id": "result", "text": "它完成后是否需要成果标注？"},
     {"id": "handling", "text": "你希望如何处理它？"},
+    {"id": "project_node", "text": "如果它属于项目，更像挂在哪个工作流 / 小任务 / 具体事务下？"},
+    {"id": "resource_boundary", "text": "它是否只是资源，而不是行动？"},
 ]
 MAX_PAYLOAD_CHARS = 6000
 MAX_NOTE_CHARS = 240
@@ -50,11 +53,12 @@ class ClarifyService:
         provider_name: str = "mock",
         title: Optional[str] = None,
         dry_run_preview: bool = False,
+        project_ref: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not ids:
             raise ValueError("clarify selected requires at least one id.")
         review_id = self.reviews.start("clarify:selected", item_refs=ids, title=title or "Clarify selected")
-        return self.run_review(review_id, answer=answer, skip_reason=skip_reason, provider_name=provider_name, dry_run_preview=dry_run_preview)
+        return self.run_review(review_id, answer=answer, skip_reason=skip_reason, provider_name=provider_name, dry_run_preview=dry_run_preview, project_ref=project_ref)
 
     def start_inbox(self, limit: int = 10, **kwargs) -> Dict[str, Any]:
         ids = self.inbox_candidates(limit=limit)
@@ -72,7 +76,7 @@ class ClarifyService:
     def start_project(self, project_ref: str, limit: int = 10, **kwargs) -> Dict[str, Any]:
         ids = self.project_candidates(project_ref, limit=limit)
         review_id = self.reviews.start("clarify:project", item_refs=ids, title=f"Clarify project {project_ref}")
-        return self.run_review(review_id, **kwargs)
+        return self.run_review(review_id, project_ref=project_ref, **kwargs)
 
     def resume(self, review_id: int, **kwargs) -> Dict[str, Any]:
         self.reviews.set_status(review_id, "in_progress")
@@ -88,6 +92,7 @@ class ClarifyService:
         skip_reason: Optional[str] = None,
         provider_name: str = "mock",
         dry_run_preview: bool = False,
+        project_ref: Optional[str] = None,
     ) -> Dict[str, Any]:
         provider = provider_from_settings(self.settings, override_name=provider_name)
         self.reviews.set_status(review_id, "in_progress")
@@ -111,7 +116,7 @@ class ClarifyService:
             if item_answer is None:
                 item_answer = self._prompt_answer(obj)
             self._record_questions_and_answer(item["id"], item_answer)
-            payload = self.build_payload(review_id, item["id"], obj, item_answer)
+            payload = self.build_payload(review_id, item["id"], obj, item_answer, project_ref=project_ref)
             if dry_run_preview or isinstance(provider, DryRunProvider):
                 preview = provider.preview_payload(payload)
                 previews.append(preview)
@@ -198,10 +203,13 @@ class ClarifyService:
             "table": proposal_table(proposals, self.repo),
         }
 
-    def build_payload(self, review_id: int, review_item_id: int, obj: Dict[str, Any], answer: str) -> Dict[str, Any]:
+    def build_payload(self, review_id: int, review_item_id: int, obj: Dict[str, Any], answer: str, project_ref: Optional[str] = None) -> Dict[str, Any]:
         annotations = self.repo.list_annotations(target_object_id=int(obj["id"]), limit=5)
         records = self.repo.records_for_object(int(obj["id"]), limit=8)
         notes, notes_truncated = self._short_notes(records)
+        project_context = None
+        if project_ref:
+            project_context = ProjectTreeService(self.conn, self.settings).summary_for_payload(project_ref)
         raw = {
             "prompt_version": self.settings.provider_prompt_version,
             "review_id": review_id,
@@ -231,6 +239,7 @@ class ClarifyService:
                     {"type": item.get("annotation_type"), "status": item.get("status"), "content": str(item.get("content", ""))[:MAX_NOTE_CHARS]}
                     for item in annotations
                 ],
+                "project_context": project_context,
             },
             "questions": BASIC_QUESTIONS,
             "answers": [{"question_id": "freeform", "answer": answer}],
@@ -328,6 +337,12 @@ class ClarifyService:
             payload = dict(candidate.get("payload") or {})
             if proposal_type == "logseq_append_marker" and "marker" not in payload:
                 payload["marker"] = "**[AI注]**"
+            project_target = (target or {}).get("project_id") or (target or {}).get("target_project_id")
+            if project_target and "target_project_id" not in payload:
+                payload["target_project_id"] = project_target
+            node_target = (target or {}).get("project_node_id") or (target or {}).get("target_project_node_id")
+            if node_target and "target_project_node_id" not in payload:
+                payload["target_project_node_id"] = node_target
             risk = candidate.get("risk") or classify_risk(proposal_type, payload)
             proposal_id = self.proposals.create(
                 proposal_type,

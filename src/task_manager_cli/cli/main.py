@@ -14,6 +14,8 @@ from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManager
 from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
+from task_manager_cli.projects.membership import ProjectMembershipService
+from task_manager_cli.projects.tree import ProjectTreeService, project_tree_json
 from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.providers.service import ProviderService
 from task_manager_cli.query.agent_views import AgentViewService
@@ -83,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_cmd = sub.add_parser("list", help="List objects.")
     list_sub = list_cmd.add_subparsers(dest="list_command")
-    for name, object_type in (("projects", "project"), ("tasks", "task"), ("ideas", "idea")):
+    for name, object_type in (("projects", "project"), ("tasks", "task"), ("ideas", "idea"), ("mini-projects", "mini_project")):
         p = list_sub.add_parser(name, help=f"List {name}.")
         p.add_argument("--status")
         p.add_argument("--limit", type=int, default=50)
@@ -129,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--redact", dest="redact", action="store_true", default=True)
     p.add_argument("--no-redact", dest="redact", action="store_false")
     p.set_defaults(handler=cmd_agent_project_context)
+    p = agent_sub.add_parser("project-tree", help="Export readonly project tree context for an external agent.")
+    p.add_argument("project")
+    p.add_argument("--detail", action="store_true")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_agent_project_tree)
     p = agent_sub.add_parser("inbox-context", help="Export idea inbox context for external agent triage.")
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--limit", type=int, default=80)
@@ -201,6 +208,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--detail", dest="detail", action="store_true")
     p.add_argument("--limit", type=int, default=12)
     p.set_defaults(handler=cmd_view_project)
+    p = view_sub.add_parser("project-tree", help="Show readonly project tree view.")
+    p.add_argument("project")
+    p.add_argument("--brief", dest="detail", action="store_false", default=False)
+    p.add_argument("--detail", dest="detail", action="store_true")
+    p.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p.set_defaults(handler=cmd_project_tree)
+
+    project = sub.add_parser("project", help="Project tree and membership commands.")
+    project_sub = project.add_subparsers(dest="project_command")
+    p = project_sub.add_parser("tree", help="Show readonly project tree.")
+    p.add_argument("project")
+    p.add_argument("--detail", action="store_true")
+    p.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p.set_defaults(handler=cmd_project_tree)
+    p = project_sub.add_parser("propose-membership", help="Create a project membership proposal for an object.")
+    p.add_argument("--object", required=True, help="Action item, idea, resource, or mini project id/source/title.")
+    p.add_argument("--project", required=True, help="Target project id/source/title.")
+    p.add_argument("--node-id", help="Optional project tree node id.")
+    p.add_argument("--type", dest="proposal_type", help="Override proposal type.")
+    p.add_argument("--reason")
+    p.set_defaults(handler=cmd_project_propose_membership)
+    p = project_sub.add_parser("promote-mini", help="Propose promoting an action item into a mini project.")
+    p.add_argument("object")
+    p.add_argument("--reason")
+    p.set_defaults(handler=cmd_project_promote_mini)
 
     debug = sub.add_parser("debug", help="Debug Logseq parsing and storage.")
     debug_sub = debug.add_subparsers(dest="debug_command")
@@ -273,7 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--author", default="agent")
     p.set_defaults(handler=cmd_proposal_create_annotation)
     p = proposal_sub.add_parser("create-marker", help="Create a Logseq marker writeback proposal.")
-    p.add_argument("marker", choices=["注", "AI注", "待澄清", "成果", "无成果"])
+    p.add_argument("marker", choices=["注", "AI注", "待澄清", "成果", "无成果", "小任务", "资源"])
     p.add_argument("content")
     p.add_argument("--object")
     p.add_argument("--file")
@@ -289,6 +321,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--line", type=int)
     p.add_argument("--author", default="agent")
     p.set_defaults(handler=cmd_proposal_create_task_marker)
+    p = proposal_sub.add_parser("create-append-child", help="Create an append-only child block proposal.")
+    p.add_argument("content")
+    p.add_argument("--object")
+    p.add_argument("--file")
+    p.add_argument("--uuid")
+    p.add_argument("--line", type=int)
+    p.add_argument("--type", dest="proposal_type", choices=["append_project_node_ref", "create_mini_project_node"], default="append_project_node_ref")
+    p.add_argument("--author", default="agent")
+    p.set_defaults(handler=cmd_proposal_create_append_child)
     p = proposal_sub.add_parser("list", help="List proposals.")
     p.add_argument("--status")
     p.add_argument("--review", type=int)
@@ -357,6 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
         p = clarify_sub.add_parser(name, help=f"Clarify {name} candidates.")
         if name == "selected":
             p.add_argument("--ids", nargs="+", required=True)
+            p.add_argument("--project", help="Optional project context for provider payload.")
         else:
             p.add_argument("--limit", type=int, default=10)
         _add_clarify_common_args(p)
@@ -566,6 +608,14 @@ def cmd_agent_project_context(args) -> str:
     return to_json(data) if args.format == "json" else service.markdown(data)
 
 
+def cmd_agent_project_tree(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectTreeService(conn, settings)
+    data = service.agent_view(args.project, detail=args.detail)
+    return project_tree_json(data) if args.format == "json" else service.render_markdown(data, detail=args.detail)
+
+
 def cmd_agent_inbox_context(args) -> str:
     service = _agent_view_service()
     data = service.inbox_context(days=args.days, limit=args.limit, redact=args.redact, include_annotations=args.include_annotations)
@@ -673,6 +723,36 @@ def cmd_view_projects(args) -> str:
 
 def cmd_view_project(args) -> str:
     return _human_view_service().project(args.project, limit=args.limit, detail=args.detail)
+
+
+def cmd_project_tree(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectTreeService(conn, settings)
+    tree = service.build(args.project, detail=args.detail)
+    return project_tree_json(tree) if args.format == "json" else service.render_markdown(tree, detail=args.detail)
+
+
+def cmd_project_propose_membership(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    proposal_id = ProjectMembershipService(conn, ProposalService(conn, settings)).propose(
+        args.object,
+        args.project,
+        project_node_id=args.node_id,
+        proposal_type=args.proposal_type,
+        reason=args.reason,
+    )
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
+def cmd_project_promote_mini(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    proposal_id = ProjectMembershipService(conn, ProposalService(conn, settings)).propose_promote_to_mini_project(args.object, reason=args.reason)
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
 
 
 def cmd_view_tasks(args) -> str:
@@ -822,6 +902,22 @@ def cmd_proposal_create_task_marker(args) -> str:
     return to_json({"proposal_id": proposal_id, "status": "suggested"})
 
 
+def cmd_proposal_create_append_child(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    proposal_id = ProposalService(conn, settings).create_append_child(
+        args.content,
+        target_object_ref=args.object,
+        file_path=args.file,
+        block_uuid=args.uuid,
+        line_start=args.line,
+        proposal_type=args.proposal_type,
+        source=args.author,
+    )
+    conn.commit()
+    return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
 def cmd_proposal_list(args) -> str:
     return to_json(_proposal_service().list(status=args.status, review_session_id=args.review, limit=args.limit))
 
@@ -951,6 +1047,7 @@ def cmd_clarify_selected(args) -> str:
         skip_reason=args.skip,
         provider_name=args.provider,
         dry_run_preview=args.payload_preview,
+        project_ref=args.project,
     )
     conn.commit()
     return _format_clarify_result(data, args.format)

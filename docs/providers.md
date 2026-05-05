@@ -107,9 +107,53 @@ Provider proposal candidate 白名单：
 - `add_relation`
 - `create_mini_project`
 - `add_result_marker`
+- `link_to_project`
+- `link_to_project_node`
+- `link_idea_to_project`
+- `link_resource_to_project`
+- `promote_to_mini_project`
+- `attach_to_mini_project`
 
 Risk 只能是 `low` 、 `medium` 、 `high` 。非法 type、risk、target 或 invalid JSON 会进入 parse
 error。
+
+## Round 3 Project Payload
+
+Clarify 可以附带简短 project tree context：
+
+```bash
+tm clarify selected --ids 12 --project 项目-韩国旅行 --provider dry-run
+tm clarify project 项目-韩国旅行 --limit 10 --provider mock
+```
+
+payload 只包含 project metadata、少量 node summary、node id、node type、title、depth 和 line summary。
+默认不发送完整项目页原文，不发送全量 linked records。
+
+Provider 可以建议项目纳管或小任务升级：
+
+```json
+{
+  "summary": "project membership",
+  "proposal_candidates": [
+    {
+      "type": "link_to_project_node",
+      "risk": "low",
+      "target": {
+        "object_id": "12",
+        "project_id": 3,
+        "project_node_id": "block:node"
+      },
+      "content": "挂到出行交通工作流",
+      "confidence": 0.8,
+      "reason": "条目明确引用项目并匹配节点",
+      "needs_user_confirmation": true
+    }
+  ]
+}
+```
+
+Provider 不能建议移动、删除、合并、大规模重排或重写项目页。若不确定，应返回
+`questions_for_user`，而不是强行生成 Proposal。
 
 ## Errors / Retry
 

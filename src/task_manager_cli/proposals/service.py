@@ -15,6 +15,11 @@ LOW_RISK = {
     ProposalType.RELATION_CHANGE.value,
     ProposalType.ANNOTATION.value,
     ProposalType.NEEDS_CLARIFICATION.value,
+    ProposalType.LINK_TO_PROJECT.value,
+    ProposalType.LINK_TO_PROJECT_NODE.value,
+    ProposalType.LINK_IDEA_TO_PROJECT.value,
+    ProposalType.LINK_RESOURCE_TO_PROJECT.value,
+    ProposalType.ATTACH_TO_MINI_PROJECT.value,
 }
 MEDIUM_RISK = {
     ProposalType.LOGSEQ_APPEND_MARKER.value,
@@ -22,6 +27,9 @@ MEDIUM_RISK = {
     ProposalType.CREATE_MINI_PROJECT.value,
     ProposalType.RESULT_MARKER.value,
     ProposalType.CREATE_PROJECT_NODE.value,
+    ProposalType.PROMOTE_TO_MINI_PROJECT.value,
+    ProposalType.APPEND_PROJECT_NODE_REF.value,
+    ProposalType.CREATE_MINI_PROJECT_NODE.value,
 }
 HIGH_RISK = {
     ProposalType.DELETE.value,
@@ -31,7 +39,19 @@ HIGH_RISK = {
     ProposalType.PROJECT_TREE_REWRITE.value,
 }
 
-LOGSEQ_MARKERS = {"**[注]**", "**[AI注]**", "**[待澄清]**", "**[成果]**", "**[无成果]**"}
+LOGSEQ_MARKERS = {"**[注]**", "**[AI注]**", "**[待澄清]**", "**[成果]**", "**[无成果]**", "**[小任务]**", "**[资源]**"}
+RELATION_PROPOSAL_TYPES = {
+    ProposalType.RELATION_CHANGE.value,
+    ProposalType.LINK_TO_PROJECT.value,
+    ProposalType.LINK_TO_PROJECT_NODE.value,
+    ProposalType.LINK_IDEA_TO_PROJECT.value,
+    ProposalType.LINK_RESOURCE_TO_PROJECT.value,
+    ProposalType.ATTACH_TO_MINI_PROJECT.value,
+}
+APPEND_CHILD_PROPOSAL_TYPES = {
+    ProposalType.APPEND_PROJECT_NODE_REF.value,
+    ProposalType.CREATE_MINI_PROJECT_NODE.value,
+}
 
 
 class ProposalService:
@@ -119,6 +139,21 @@ class ProposalService:
         payload = {"marker": marker, "content": content, "file_path": file_path, "block_uuid": block_uuid, "line_start": line_start}
         return self.create(proposal_type, f"Append {marker} to Logseq block", payload, target_object_ref=target_object_ref, source=source)
 
+    def create_append_child(
+        self,
+        content: str,
+        target_object_ref: Optional[str] = None,
+        file_path: Optional[str] = None,
+        block_uuid: Optional[str] = None,
+        line_start: Optional[int] = None,
+        proposal_type: str = ProposalType.APPEND_PROJECT_NODE_REF.value,
+        source: str = "agent",
+    ) -> int:
+        if proposal_type not in APPEND_CHILD_PROPOSAL_TYPES:
+            raise ValueError(f"Unsupported append-child proposal type: {proposal_type}")
+        payload = {"content": content, "file_path": file_path, "block_uuid": block_uuid, "line_start": line_start}
+        return self.create(proposal_type, "Append child block to project node", payload, target_object_ref=target_object_ref, source=source)
+
     def create_task_marker(self, new_marker: str, target_object_ref: Optional[str] = None, file_path: Optional[str] = None, block_uuid: Optional[str] = None, line_start: Optional[int] = None, source: str = "agent") -> int:
         return self.create(
             ProposalType.LOGSEQ_TASK_MARKER.value,
@@ -156,6 +191,12 @@ class ProposalService:
         proposal = self.get(proposal_id)
         if proposal["proposal_type"] in {ProposalType.LOGSEQ_APPEND_MARKER.value, ProposalType.RESULT_MARKER.value, ProposalType.NEEDS_CLARIFICATION.value}:
             preview = self._logseq_marker_preview(proposal)
+            proposal["preview_diff"] = preview.diff
+            proposal["file_sha256"] = preview.original_sha256
+            self._event(proposal_id, "previewed", "user", {"file_path": str(preview.file_path), "line_start": preview.line_start, "block_uuid": preview.block_uuid})
+            return proposal
+        if proposal["proposal_type"] in APPEND_CHILD_PROPOSAL_TYPES:
+            preview = self._append_child_preview(proposal)
             proposal["preview_diff"] = preview.diff
             proposal["file_sha256"] = preview.original_sha256
             self._event(proposal_id, "previewed", "user", {"file_path": str(preview.file_path), "line_start": preview.line_start, "block_uuid": preview.block_uuid})
@@ -269,6 +310,23 @@ class ProposalService:
             preview = self._task_marker_preview(proposal)
             backup = self._writer().apply(preview, preview.original_sha256, self._backup_dir())
             applied_record = {"file_path": str(preview.file_path), "backup_path": str(backup), "line_start": preview.line_start, "block_uuid": preview.block_uuid}
+        elif proposal["proposal_type"] in RELATION_PROPOSAL_TYPES:
+            applied_record = self._apply_relation_proposal(proposal)
+        elif proposal["proposal_type"] == ProposalType.PROMOTE_TO_MINI_PROJECT.value:
+            payload = proposal["payload"]
+            annotation_id = AnnotationService(self.conn).add(
+                str(proposal["target_object_id"]) if proposal["target_object_id"] else None,
+                payload.get("suggested_mini_project_title") or payload.get("content") or "Promote to mini project",
+                author="agent",
+                annotation_type="mini_project_candidate",
+            )
+            applied_record = {"annotation_id": annotation_id, "internal_only": True}
+        elif proposal["proposal_type"] in APPEND_CHILD_PROPOSAL_TYPES:
+            self._ensure_write_apply_allowed(confirmed)
+            self._ensure_previewed(proposal_id)
+            preview = self._append_child_preview(proposal)
+            backup = self._writer().apply(preview, preview.original_sha256, self._backup_dir())
+            applied_record = {"file_path": str(preview.file_path), "backup_path": str(backup), "line_start": preview.line_start, "block_uuid": preview.block_uuid}
         else:
             raise TaskManagerError(f"Apply is not implemented for proposal type: {proposal['proposal_type']}")
         self.conn.execute(
@@ -290,6 +348,8 @@ class ProposalService:
         if "annotation_id" in record:
             self.conn.execute("DELETE FROM annotations WHERE id=?", (int(record["annotation_id"]),))
             rollback_record = {"deleted_annotation_id": int(record["annotation_id"])}
+        elif "relation_id" in record:
+            rollback_record = self._rollback_relation_record(record)
         elif record.get("backup_path") and record.get("file_path"):
             self._writer().restore_backup(Path(record["backup_path"]), Path(record["file_path"]))
             rollback_record = {"restored_backup_path": record["backup_path"], "file_path": record["file_path"]}
@@ -322,6 +382,77 @@ class ProposalService:
         payload = proposal["payload"]
         file_path, block_uuid, line_start = self._target_location(proposal, payload)
         return self._writer().preview_update_task_marker(file_path, payload["new_marker"], block_uuid=block_uuid, line_start=line_start)
+
+    def _append_child_preview(self, proposal: Dict[str, Any]):
+        payload = proposal["payload"]
+        file_path, block_uuid, line_start = self._target_location(proposal, payload)
+        return self._writer().preview_append_child(file_path, payload.get("content", ""), block_uuid=block_uuid, line_start=line_start)
+
+    def _apply_relation_proposal(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
+        payload = proposal["payload"]
+        from_object_id = proposal.get("target_object_id") or payload.get("from_object_id") or payload.get("source_object_id")
+        to_object_id = payload.get("target_project_id") or payload.get("to_object_id") or payload.get("target_object_id")
+        if not from_object_id or not to_object_id:
+            raise TaskManagerError("Relation proposal requires source and target object ids.")
+        relation_type = payload.get("relation_type") or "belongs_to"
+        existing = self.conn.execute(
+            """
+            SELECT id, confidence, metadata_json
+            FROM relations
+            WHERE from_object_id=? AND to_object_id=? AND relation_type=?
+            """,
+            (int(from_object_id), int(to_object_id), relation_type),
+        ).fetchone()
+        metadata = {
+            "proposal_id": proposal["id"],
+            "proposal_type": proposal["proposal_type"],
+            "target_project_node_id": payload.get("target_project_node_id"),
+            "source_evidence": payload.get("source_evidence", []),
+            "writeback_suggested": bool(payload.get("writeback_suggested")),
+        }
+        confidence = float(payload.get("confidence") or 0.75)
+        if existing:
+            previous = {"confidence": existing["confidence"], "metadata_json": existing["metadata_json"]}
+            self.conn.execute(
+                "UPDATE relations SET confidence=?, metadata_json=? WHERE id=?",
+                (confidence, json.dumps(metadata, ensure_ascii=False, sort_keys=True), int(existing["id"])),
+            )
+            relation_id = int(existing["id"])
+            created = False
+        else:
+            cur = self.conn.execute(
+                """
+                INSERT INTO relations(from_object_id, to_object_id, relation_type, confidence, metadata_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (int(from_object_id), int(to_object_id), relation_type, confidence, json.dumps(metadata, ensure_ascii=False, sort_keys=True)),
+            )
+            relation_id = int(cur.lastrowid)
+            previous = None
+            created = True
+        return {
+            "relation_id": relation_id,
+            "relation_created": created,
+            "previous_relation": previous,
+            "from_object_id": int(from_object_id),
+            "to_object_id": int(to_object_id),
+            "relation_type": relation_type,
+            "internal_only": True,
+        }
+
+    def _rollback_relation_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        relation_id = int(record["relation_id"])
+        if record.get("relation_created"):
+            self.conn.execute("DELETE FROM relations WHERE id=?", (relation_id,))
+            return {"deleted_relation_id": relation_id}
+        previous = record.get("previous_relation")
+        if previous:
+            self.conn.execute(
+                "UPDATE relations SET confidence=?, metadata_json=? WHERE id=?",
+                (previous["confidence"], previous["metadata_json"], relation_id),
+            )
+            return {"restored_relation_id": relation_id}
+        raise TaskManagerError("Relation rollback record is incomplete.")
 
     def _target_location(self, proposal: Dict[str, Any], payload: Dict[str, Any]):
         file_path = payload.get("file_path")

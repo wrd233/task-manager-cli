@@ -26,7 +26,15 @@ tm clarify eval 1
 ```
 
 `selected` 是本轮的主入口。 `inbox` 、 `today` 、 `project`
-是轻量候选选择器，不实现完整项目语义树。
+是轻量候选选择器。Round 3 中 `project` 会使用 readonly project tree summary，但仍不实现完整项目树重构。
+
+Round 3 还支持给 selected clarify 传入项目上下文：
+
+```bash
+tm clarify selected --ids 12 --project 项目-韩国旅行 --answer "属于这个项目" --provider mock
+```
+
+payload 中只包含简短 project tree summary，不发送完整项目页原文。
 
 ## Questions
 
@@ -39,6 +47,8 @@ tm clarify eval 1
 - 它是否需要等待别人或外部条件？
 - 它完成后是否需要成果标注？
 - 你希望如何处理它？
+- 如果它属于项目，更像挂在哪个工作流 / 小任务 / 具体事务下？
+- 它是否只是资源，而不是行动？
 
 CLI 可以逐条 prompt，也可以用 `--answer` 非交互记录一条 freeform answer。 `--skip` 会把 item
 标记为 `skipped` 并保留原因。
@@ -76,6 +86,19 @@ Review item clarify 状态包括：
 
 `resume` 会继续处理 pending / asked / answered / failed item。
 
+## Project Membership
+
+Clarify 可以生成项目纳管相关 Proposal：
+
+- `link_to_project`
+- `link_to_project_node`
+- `link_idea_to_project`
+- `link_resource_to_project`
+- `promote_to_mini_project`
+- `attach_to_mini_project`
+
+这些建议仍然只是 `suggested` Proposal。Provider 不会直接创建 relation，不会移动 Logseq 块，也不会重写项目树。
+
 ## Suggestion Table
 
 Clarify 结束后输出建议表：
@@ -102,3 +125,6 @@ metadata、自动删除、自动合并或未经确认的写回。
 
 Round 2.5 增加 provider doctor、真实 provider smoke test、retry failed、clarify eval、严格
 response schema 和 payload size guard。
+
+Round 3 增加 project context、project membership proposals 和 `promote_to_mini_project` 建议，但仍不做完整小任务系统、
+完整项目树写回或复杂 TUI。

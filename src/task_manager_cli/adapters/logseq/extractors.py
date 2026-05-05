@@ -5,8 +5,12 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 
 PROJECT_MARKERS = [
+    "[目标]",
     "[具体目标]",
+    "[工作流]",
+    "[小任务]",
     "[具体事务]",
+    "[资源]",
     "[资源列表]",
     "[头脑风暴]",
     "[反思]",
@@ -15,6 +19,9 @@ PROJECT_MARKERS = [
     "[里程碑]",
     "[阶段]",
     "[子阶段]",
+    "[想法]",
+    "[注]",
+    "[AI注]",
     "[待澄清]",
     "[成果]",
     "[无成果]",
@@ -24,7 +31,9 @@ PROJECT_PREFIXES = ("项目-", "任务-", "学习-", "课程-", "阶段-")
 TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)\b\s*(.*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
 IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
-SEMANTIC_MARKER_RE = re.compile(r"^(?:\*\*)?\[(想法|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$")
+SEMANTIC_MARKER_RE = re.compile(
+    r"^(?:\*\*)?\[(目标|里程碑|工作流|小任务|具体事务|资源|想法|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$"
+)
 TAG_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-\u4e00-\u9fff/]+)")
 BLOCK_REF_RE = re.compile(r"\(\(([0-9a-fA-F-]{8,})\)\)")
 EMBED_RE = re.compile(r"\{\{embed\s+\(\(([0-9a-fA-F-]{8,})\)\)\}\}")
@@ -114,6 +123,14 @@ def semantic_marker(raw: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def semantic_marker_content(raw: str) -> Optional[str]:
+    text = strip_bullet(raw)
+    match = SEMANTIC_MARKER_RE.match(text)
+    if not match:
+        return None
+    return normalize_text(match.group(2).replace("**", ""))
+
+
 def semantic_tags(raw: str) -> List[str]:
     return [tag.lower() for tag in TAG_RE.findall(strip_bullet(raw))]
 
@@ -174,9 +191,11 @@ def project_confidence(page_name: str, page_props: Dict[str, str], all_text: str
         reasons.append("project_like_prefix")
     if para and markers:
         return "high", 0.95, reasons
-    if para or markers:
+    if para:
         return "medium", 0.75, reasons
-    if prefix and (task_count > 0 or markers):
+    if prefix and markers:
+        return "medium", 0.7, reasons
+    if prefix and task_count > 0:
         return "low", 0.5, reasons
     return None, 0.0, reasons
 
@@ -194,6 +213,12 @@ def role_for_child(text: str) -> str:
         return "clarification_marker"
     if marker in {"成果", "无成果"}:
         return "result_marker"
+    if marker == "小任务":
+        return "mini_project"
+    if marker == "资源":
+        return "resource"
+    if marker in {"目标", "里程碑", "工作流", "具体事务"}:
+        return "project_tree_node"
     if "[反思]" in stripped:
         return "reflection"
     if "[问题]" in stripped:

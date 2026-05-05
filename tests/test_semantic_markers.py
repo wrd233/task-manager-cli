@@ -14,6 +14,10 @@ def test_semantic_marker_recognition_is_explicit():
     assert semantic_marker("- **[AI注]** 模型建议") == "AI注"
     assert semantic_marker("- **[成果]** 已沉淀") == "成果"
     assert semantic_marker("- **[无成果]** 无可复用输出") == "无成果"
+    assert semantic_marker("- **[小任务]** 整理多步骤事务") == "小任务"
+    assert semantic_marker("- **[目标]** 完成项目方向") == "目标"
+    assert semantic_marker("- **[工作流]** 出行交通") == "工作流"
+    assert semantic_marker("- **[资源]** 官网链接") == "资源"
     assert "inbox" in semantic_tags("- TODO 做事 #inbox #waiting")
     assert "waiting" in semantic_tags("- TODO 做事 #inbox #waiting")
     assert "reference" in semantic_tags("- 资料 #reference")

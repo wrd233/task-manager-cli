@@ -31,6 +31,8 @@ tm config set-write-mode guarded
 - `**[待澄清]**`
 - `**[成果]**`
 - `**[无成果]**`
+- `**[小任务]**`
+- `**[资源]**`
 
 修改 task marker：
 
@@ -81,3 +83,17 @@ tm proposal apply <proposal-id> --yes
 ```
 
 rollback 仍使用第 1 轮的备份恢复机制。
+
+## Round 3 Project Writeback
+
+项目树默认只读。项目纳管 Proposal 默认只写内部 relation，不移动原始 Logseq 块。
+
+Round 3 允许的项目相关写回仍然是 append-only：
+
+- 在目标节点下追加 block ref。
+- 追加 `**[AI注]**`。
+- 追加 `**[待澄清]**`。
+- 追加最小 `**[小任务]**` 节点。
+- 追加 `**[资源]**` 引用。
+
+仍然禁止移动、删除、合并、重排项目页、大规模项目树重写或自动改标题。Provider 不能直接写回项目树。

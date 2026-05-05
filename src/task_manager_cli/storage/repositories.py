@@ -464,6 +464,7 @@ class Repository:
             "projects": "objects WHERE object_type='project'",
             "tasks": "objects WHERE object_type='task'",
             "ideas": "objects WHERE object_type='idea'",
+            "mini_projects": "objects WHERE object_type='mini_project'",
             "records": "source_records",
             "annotations": "annotations",
             "sync_runs": "sync_runs",

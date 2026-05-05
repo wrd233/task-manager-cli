@@ -16,6 +16,7 @@ from task_manager_cli.adapters.logseq.extractors import (
     project_confidence,
     role_for_child,
     semantic_marker,
+    semantic_marker_content,
     semantic_tags,
     suspicious_idea_reason,
 )
@@ -206,6 +207,7 @@ class LogseqAdapter:
 
             self._extract_task(block, parsed, result, page_project_source_id)
             self._extract_idea(block, parsed, result, page_project_source_id)
+            self._extract_mini_project(block, parsed, result, page_project_source_id)
 
     def _extract_task(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
         parsed_task = block.task
@@ -289,6 +291,43 @@ class LogseqAdapter:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.65, {"rule": "same_project_page"}))
         else:
             self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="journal_page_ref")
+
+    def _extract_mini_project(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
+        if semantic_marker(block.raw) != "小任务":
+            return
+        if is_reference_record(block.raw):
+            return
+        source_id = self._block_source_id(block)
+        journal_date = journal_date_from_path(parsed.file_path)
+        title = semantic_marker_content(block.raw) or "未命名小任务"
+        mini_project = ActionObject(
+            object_type=ObjectType.MINI_PROJECT.value,
+            title=title,
+            source_type=self.source_type,
+            source_item_id=source_id,
+            status="captured",
+            created_at=journal_date,
+            created_at_source="journal_date" if journal_date else "first_seen_at",
+            confidence=0.88,
+            metadata={
+                "page_name": parsed.page_name,
+                "section_markers": block.section_markers(),
+                "semantic_marker": "小任务",
+                "semantic_tags": semantic_tags(block.raw),
+                "page_refs": block.page_refs,
+                "extraction_rule": "logseq_mini_project_marker",
+            },
+        )
+        result.objects.append(mini_project)
+        result.links.append(ObjectRecordLink(source_id, source_id, "definition"))
+        for child in block.descendants():
+            if child.properties.get("__property_block__") == "true":
+                continue
+            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), role_for_child(child.raw)))
+        if page_project_source_id:
+            result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.9, {"rule": "mini_project_under_project_page"}))
+        else:
+            self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="mini_project_page_ref")
 
     def _add_page_ref_project_relations(self, block: LogseqBlock, source_id: str, result: AdapterResult, confidence: float, rule: str) -> None:
         for ref in block.page_refs:

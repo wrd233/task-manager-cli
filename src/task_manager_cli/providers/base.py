@@ -37,6 +37,12 @@ ALLOWED_PROVIDER_TYPES = {
     "status_change",
     "relation_change",
     "result_marker",
+    "link_to_project",
+    "link_to_project_node",
+    "link_idea_to_project",
+    "link_resource_to_project",
+    "promote_to_mini_project",
+    "attach_to_mini_project",
 }
 ALLOWED_RISKS = {"low", "medium", "high"}
 TYPE_MAP = {
@@ -47,6 +53,12 @@ TYPE_MAP = {
     "add_relation": "relation_change",
     "create_mini_project": "create_mini_project",
     "add_result_marker": "result_marker",
+    "link_to_project": "link_to_project",
+    "link_to_project_node": "link_to_project_node",
+    "link_idea_to_project": "link_idea_to_project",
+    "link_resource_to_project": "link_resource_to_project",
+    "promote_to_mini_project": "promote_to_mini_project",
+    "attach_to_mini_project": "attach_to_mini_project",
 }
 
 
@@ -119,6 +131,26 @@ class MockProvider(ProposalProvider):
                 }
             )
         else:
+            project_context = payload.get("short_context", {}).get("project_context") or {}
+            project_id = (project_context.get("project") or {}).get("id")
+            if project_id and ("项目" in answer or "project" in answer.lower() or "纳管" in answer):
+                candidates.append(
+                    {
+                        "proposal_type": "link_to_project",
+                        "title": "Link item to project",
+                        "risk": "low",
+                        "payload": {
+                            "relation_type": "belongs_to",
+                            "target_project_id": project_id,
+                            "target_project_title": (project_context.get("project") or {}).get("title"),
+                            "confidence": 0.78,
+                            "source_evidence": ["clarify_project_context"],
+                            "writeback_suggested": False,
+                        },
+                        "confidence": 0.78,
+                        "reasoning_summary": "用户回答和项目上下文显示该条目适合纳管到项目。",
+                    }
+                )
             candidates.append(
                 {
                     "proposal_type": "logseq_append_marker",
@@ -304,8 +336,12 @@ def system_prompt(prompt_version: str) -> str:
         "questions_for_user:[{question,why}],warnings:[]}。"
         "primary_state must be one of inbox,next,waiting,someday,reference,idea,done,dropped,unknown. "
         "proposal type must be one of add_marker,change_task_marker,add_annotation,change_state,add_relation,"
-        "create_mini_project,add_result_marker. risk must be low,medium,high. "
+        "create_mini_project,add_result_marker,link_to_project,link_to_project_node,link_idea_to_project,"
+        "link_resource_to_project,promote_to_mini_project,attach_to_mini_project. risk must be low,medium,high. "
         "For this implementation, add_marker, change_task_marker, add_annotation, and add_result_marker are the most usable. "
+        "For Round 3 project membership, prefer low-risk link_to_project/link_to_project_node proposals when evidence is explicit; "
+        "use promote_to_mini_project only when an item clearly needs multiple action items. "
+        "Never propose moving, deleting, merging, or rewriting project tree blocks. "
         "Avoid change_state unless the user explicitly asks for an internal-only state proposal. "
         "If the user asks to leave an AI note, use add_marker with content and risk medium. "
         "target must always be a JSON object; use {} if unsure, never use string/null/array. "
@@ -363,6 +399,23 @@ def payload_from_schema_candidate(raw_type: str, item: Dict[str, Any]) -> Dict[s
         return {"relation_type": item.get("relation_type"), "target": item.get("target")}
     if raw_type == "create_mini_project":
         return {"content": content}
+    if raw_type in {"link_to_project", "link_idea_to_project", "link_resource_to_project", "link_to_project_node", "attach_to_mini_project"}:
+        target = item.get("target") or {}
+        return {
+            "relation_type": item.get("relation_type") or "belongs_to",
+            "target_project_id": target.get("project_id") or target.get("target_project_id") or item.get("target_project_id"),
+            "target_project_title": target.get("project_title") or item.get("target_project_title"),
+            "target_project_node_id": target.get("project_node_id") or target.get("target_project_node_id") or item.get("target_project_node_id"),
+            "confidence": _float_or_none(item.get("confidence")),
+            "source_evidence": item.get("source_evidence") or ([item.get("reason")] if item.get("reason") else []),
+            "writeback_suggested": bool(item.get("writeback_suggested", False)),
+        }
+    if raw_type == "promote_to_mini_project":
+        return {
+            "suggested_mini_project_title": content or item.get("title"),
+            "source_object_id": (item.get("target") or {}).get("object_id"),
+            "writeback_suggested": bool(item.get("writeback_suggested", False)),
+        }
     return dict(item.get("payload") or {})
 
 
@@ -375,6 +428,12 @@ def title_for_candidate(raw_type: str, content: Optional[str]) -> str:
         "add_relation": "Add relation",
         "create_mini_project": "Create mini project",
         "add_result_marker": "Add result marker",
+        "link_to_project": "Link to project",
+        "link_to_project_node": "Link to project node",
+        "link_idea_to_project": "Link idea to project",
+        "link_resource_to_project": "Link resource to project",
+        "promote_to_mini_project": "Promote to mini project",
+        "attach_to_mini_project": "Attach to mini project",
     }
     base = names.get(raw_type, "Provider proposal")
     return f"{base}: {str(content)[:40]}" if content else base
@@ -383,6 +442,9 @@ def title_for_candidate(raw_type: str, content: Optional[str]) -> str:
 def mask_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:3]}...{value[-4:]}"
 
 
 def extract_json_object(content: str) -> str:
@@ -397,9 +459,6 @@ def extract_json_object(content: str) -> str:
     if start >= 0 and end > start:
         return text[start : end + 1]
     return text
-    if len(value) <= 8:
-        return "***"
-    return f"{value[:3]}...{value[-4:]}"
 
 
 def _float_or_none(value: Any) -> Optional[float]:

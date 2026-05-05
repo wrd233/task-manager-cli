@@ -93,6 +93,39 @@ def test_provider_response_new_schema_and_whitelist_validation():
         parse_provider_response(json.dumps({"proposal_candidates": [{"type": "add_marker", "risk": "low", "target": "bad", "content": "x"}]}))
 
 
+def test_provider_response_round3_project_membership_types():
+    content = json.dumps(
+        {
+            "summary": "project membership",
+            "proposal_candidates": [
+                {
+                    "type": "link_to_project_node",
+                    "risk": "low",
+                    "target": {"object_id": "7", "project_id": 2, "project_node_id": "block:node"},
+                    "content": "挂到项目工作流",
+                    "confidence": 0.81,
+                    "reason": "明确引用项目和节点",
+                    "needs_user_confirmation": True,
+                },
+                {
+                    "type": "promote_to_mini_project",
+                    "risk": "medium",
+                    "target": {"object_id": "7"},
+                    "content": "整理签证材料",
+                    "confidence": 0.68,
+                    "reason": "需要多个行动项",
+                },
+            ],
+        }
+    )
+    parsed = parse_provider_response(content)
+    first = parsed.proposal_candidates[0]
+    assert first["proposal_type"] == "link_to_project_node"
+    assert first["payload"]["target_project_id"] == 2
+    assert first["payload"]["target_project_node_id"] == "block:node"
+    assert parsed.proposal_candidates[1]["proposal_type"] == "promote_to_mini_project"
+
+
 def test_provider_doctor_no_call_and_env_local_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env.local").write_text(
