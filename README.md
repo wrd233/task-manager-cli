@@ -134,3 +134,10 @@ tm write reject 1
 - 不做跨来源语义去重，也不判断任务优先级。
 - 默认不写 Logseq；开启写模式后也只支持 append-only proposal/apply。
 - Flomo adapter 只有边界文档，尚未接入真实 API 或导出格式。
+
+## Claude Code
+
+项目级 Claude Code 使用说明见：
+
+- `CLAUDE.md`
+- `docs/claude-code-usage.md`

@@ -1,0 +1,51 @@
+{
+  "defaultMode": "default",
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest*)",
+      "Bash(python3 -m compileall*)",
+      "Bash(tm doctor*)",
+      "Bash(tm sync status*)",
+      "Bash(tm sync runs*)",
+      "Bash(tm sync logseq --dry-run*)",
+      "Bash(tm report *)",
+      "Bash(tm agent *)",
+      "Bash(tm annotation list*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(ls*)",
+      "Bash(find .*)",
+      "Bash(grep *)",
+      "Bash(rg *)"
+    ],
+    "ask": [
+      "Bash(tm sync logseq)",
+      "Bash(tm annotation add*)",
+      "Bash(tm annotation status*)",
+      "Bash(python3 -m pip install*)",
+      "Bash(git add*)",
+      "Bash(git commit*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./**/secrets/**)",
+      "Read(./**/*secret*)",
+      "Read(./**/*token*)",
+      "Read(./**/*credential*)",
+      "Read(./**/*key*)",
+      "Bash(rm -rf *)",
+      "Bash(git push*)",
+      "Bash(tm write apply*)",
+      "Bash(tm write append-child*)",
+      "Bash(tm write append-section*)",
+      "Bash(tm write create-page*)",
+      "Bash(* --no-redact*)"
+    ]
+  }
+}
