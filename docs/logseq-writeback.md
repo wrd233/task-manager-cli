@@ -100,3 +100,35 @@ Round 3 允许的项目相关写回仍然是 append-only：
 - 追加 `**[资源]**` 引用。
 
 仍然禁止移动、删除、合并、重排项目页、大规模项目树重写或自动改标题。Provider 不能直接写回项目树。
+
+## Human Shell Direct Action
+
+Human Shell v1 允许用户本人明确输入的 Direct Action 真实写回 Logseq：
+
+```text
+todo "..."
+idea "..."
+mini "..."
+resource "..."
+note 123 "..."
+done 123
+wait 123 "..."
+result 123 "..."
+noresult 123 "..."
+```
+
+这些操作不走 Proposal，因为它们已经是用户决策。Provider / Agent 输出仍然必须走 Proposal。
+
+Human Shell 使用合适位置 resolver：
+
+- `/today` 写入今日 journal，不存在则创建；
+- `/inbox` 写入今日 journal，并带 inbox 语义；
+- `/projects/<project>` 按类型优先写入 `[具体事务]`、`[想法]`、`[小任务]`、`[资源]`；
+- `/projects/<project>/<node>` 写入当前项目节点；
+- `/mini/<mini>` 写入 mini project block；
+- 无法定位时 fallback 到 today inbox，并明确提示。
+
+`wait` 优先把 Logseq task marker 改为 `WAITING`，等待原因作为 `**[注]**` 子块追加。
+
+Direct Action 仍只允许 append-only 或 task marker 修改，不移动、删除、合并、重排项目页。每次直接写回都会记录内存 operation history，
+并保存 backup 或 inverse 信息；`undo` 至少可撤销最近一次写回。

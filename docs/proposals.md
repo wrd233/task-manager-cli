@@ -136,3 +136,26 @@ Round 3 的 `link_to_project` / `link_to_project_node` / `link_idea_to_project` 
 是否为本次创建、旧 relation metadata 等信息。Rollback 会删除新 relation，或恢复旧 relation metadata。
 
 这不是移动 Logseq 原块。若未来需要写回，只允许 append-only，并仍需 preview / accept / apply / rollback。
+
+## Human Shell Boundary
+
+Human Shell v1 明确区分 Direct Action 与 Proposal：
+
+- 用户在 shell 中输入 `todo` / `done` / `wait` / `note` / `result` 等，是 Direct Action，直接写回 Logseq，并记录 undo。
+- Provider / Agent / mock / dry-run 生成的建议仍然只能成为 `suggested` Proposal。
+- Shell 的 `clarify` 即使逐条问答，Provider 输出也不会绕过 Proposal。
+
+Shell 提供快捷审核：
+
+```text
+proposals
+accept 1
+reject 1
+preview 1
+apply 1
+accept low
+apply accepted
+```
+
+`proposals` 会显示 session-local 编号并映射到底层 Proposal id。高风险 Proposal 不允许批量 apply。
+Shell 中 `undo` 对 shell 触发的 Proposal apply 会调用底层 rollback。

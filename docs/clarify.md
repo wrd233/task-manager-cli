@@ -161,3 +161,34 @@ tm clarify project <project> --provider dry-run --format json
 tm clarify project <project> --provider mock
 tm clarify eval <review-id>
 ```
+
+## Human Shell Clarify
+
+Human Shell v1 在当前上下文中提供逐条问答：
+
+```text
+tm shell
+cd /inbox
+clarify
+```
+
+候选来自当前路径，例如 `/today`、`/inbox`、project、project node、mini 或 ideas。Shell 每次展示一个对象，
+逐条提出基础问题，并把每个回答写入 Review Session。
+
+交互中支持：
+
+- `skip` ：跳过当前 item；
+- `quit` ：暂停 review；
+- `show` ：查看当前对象摘要后继续回答。
+
+Provider 设置在 shell 内完成：
+
+```text
+provider off
+provider dry-run
+provider mock
+provider deepseek
+```
+
+`provider off` 只记录问题和回答；`dry-run` 只展示 payload preview；`mock` / 真实 provider 仍只能生成 suggested Proposal。
+Human Shell 不允许 Provider 直接写 Logseq 或直接 apply。

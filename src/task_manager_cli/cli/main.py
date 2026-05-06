@@ -24,6 +24,7 @@ from task_manager_cli.query.exporter import SnapshotExporter
 from task_manager_cli.query.human_views import HumanViewService
 from task_manager_cli.query.service import QueryService
 from task_manager_cli.reviews.service import ReviewSessionService
+from task_manager_cli.shell.service import HumanShellService
 from task_manager_cli.storage.database import connect, init_db
 from task_manager_cli.storage.repositories import Repository
 from task_manager_cli.writes.service import WriteService
@@ -69,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("doctor", help="Check config, database, and Logseq adapter status.")
     p.set_defaults(handler=cmd_doctor)
+
+    p = sub.add_parser("shell", help="Start Human Shell REPL.")
+    p.set_defaults(handler=cmd_shell)
 
     sync = sub.add_parser("sync", help="Sync data sources.")
     sync_sub = sync.add_subparsers(dest="sync_command")
@@ -549,6 +553,26 @@ def cmd_doctor(args) -> str:
         "write_backup_dir": str(settings.write_backup_dir) if settings.write_backup_dir else None,
     }
     return to_json(data)
+
+
+def cmd_shell(args) -> None:
+    settings = _settings()
+    conn = _conn(settings)
+    shell = HumanShellService(conn, settings)
+    print("Human Shell v1. Type `help` for commands, `exit` to quit.")
+    while True:
+        try:
+            line = input(shell.prompt())
+        except EOFError:
+            print()
+            break
+        result = shell.run_line(line)
+        if result == "__exit__":
+            break
+        if result:
+            print(result)
+    conn.commit()
+    return None
 
 
 def cmd_sync_logseq(args) -> str:

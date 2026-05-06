@@ -66,8 +66,16 @@ Round 3 仍不做完整项目树重构、不移动块、不删除块、不合并
 - Clarify project payload 验证：默认只发送短 project tree summary，不发送完整项目页原文。
 - Append-only 写回加固：连续多次写回同一文件会生成唯一备份，支持按 Proposal rollback。
 
-Round 3.5 仍不实现 Human Shell / `tm shell` / `ta`，也不实现交互式 `pwd / cd / ls / tree`
-或短命令工作台。Human Shell 留待后续单独轮次。
+## Human Shell v1 新增能力
+
+- `tm shell` ：进入面向用户本人日常操作的 REPL 行动工作台。
+- 语义路径： `pwd` / `ls` / `cd` / `tree` / `show` / `open` / `find` 。
+- Direct Action： `todo` / `idea` / `mini` / `resource` / `note` / `ainote` / `doing` /
+`done` / `wait` / `someday` / `result` / `noresult` 直接写回 Logseq，并支持最近操作 `undo`。
+- Proposal 快捷审核： `proposals` / `accept` / `reject` / `preview` / `apply` / `apply accepted`。
+- Human Shell clarify：在当前上下文逐条问答，Provider 输出仍然只生成 suggested Proposal。
+
+Human Shell v1 不做复杂 TUI、全屏表格编辑、自动补全、项目树拖拽或重排。
 
 ## 安装
 
@@ -161,6 +169,28 @@ tm report extraction-quality
 tm report project-tree-quality
 tm report mini-project-quality
 tm report membership-quality
+```
+
+Human Shell：
+
+```bash
+tm shell
+# optional local alias:
+alias ta='tm shell'
+```
+
+Shell 内示例：
+
+```text
+cd /today
+todo "确认韩国打车 App 是否需要韩国手机号"
+idea "返点公司可以做一个风险评分表"
+cd /projects/项目-韩国旅行
+tree
+done 123
+result 123 "形成一版韩国打车攻略初稿"
+clarify
+proposals
 ```
 
 批注只写入 CLI 内部数据库：
