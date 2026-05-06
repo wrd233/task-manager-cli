@@ -97,6 +97,7 @@ class ProviderResult:
     confidence: Optional[float] = None
     reasoning_summary: Optional[str] = None
     needs_user_confirmation: bool = True
+    questions_for_user: List[Dict[str, Any]] = field(default_factory=list)
     raw_summary: Dict[str, Any] = field(default_factory=dict)
     usage: Dict[str, Any] = field(default_factory=dict)
     latency_ms: Optional[int] = None
@@ -116,6 +117,19 @@ class ProposalProvider:
 
 class MockProvider(ProposalProvider):
     def generate(self, payload: Dict[str, Any]) -> ProviderResult:
+        if payload.get("clarify_mode") == "ai_questions":
+            title = payload.get("item", {}).get("title", "这个条目")
+            return ProviderResult(
+                summary="Mock provider generated questions for user.",
+                proposal_candidates=[],
+                confidence=0.0,
+                reasoning_summary="mock provider questions only",
+                questions_for_user=[
+                    {"question": f"这个条目「{title}」下一步最小动作是什么？", "why": "identify_next_action"},
+                    {"question": "它是否依赖外部人或条件？", "why": "waiting_boundary"},
+                ],
+                raw_summary={"questions_for_user_count": 2},
+            )
         answer = " ".join(str(item.get("answer", "")) for item in payload.get("answers", []))
         title = payload.get("item", {}).get("title", "item")
         candidates: List[Dict[str, Any]] = []
@@ -314,6 +328,7 @@ def parse_provider_response(content: str) -> ProviderResult:
             "has_reasoning_summary": bool(data.get("reasoning_summary")),
             "schema": "clarify_v1_zh",
             "questions_for_user_count": len(questions),
+            "questions_for_user": questions[:3],
             "warnings": warnings[:5],
             "item_classification": {
                 "primary_state": classification.get("primary_state"),
@@ -321,6 +336,7 @@ def parse_provider_response(content: str) -> ProviderResult:
                 "semantic_tags": classification.get("semantic_tags", [])[:8] if isinstance(classification.get("semantic_tags", []), list) else [],
             },
         },
+        questions_for_user=questions[:3],
     )
 
 

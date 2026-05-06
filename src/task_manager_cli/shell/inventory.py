@@ -26,6 +26,9 @@ def build_inventory(conn, shell_context, repo: Repository, settings) -> dict:
     """
     path = shell_context.path if hasattr(shell_context, 'path') else str(shell_context.get('path', '/today'))
 
+    current_object_id = _get_attr(shell_context, 'current_object_id')
+    if current_object_id:
+        return _inventory_object_context(repo, int(current_object_id), path)
     if path == "/" or path == "":
         return _inventory_root()
     elif path == "/projects":
@@ -269,6 +272,52 @@ def _tag_in_records(record: dict, tag: str) -> bool:
     else:
         meta_str = ""
     return f"#{tag}" in normalized or f"#{tag}" in meta_str
+
+
+def _inventory_object_context(repo: Repository, object_id: int, path: str) -> dict:
+    obj = repo.get_object(object_id)
+    if not obj:
+        return _empty_inventory(path)
+    records = repo.records_for_object(object_id, limit=100)
+    child_items = []
+    result_items = []
+    note_items = []
+    for rec in records:
+        if rec.get("role") == "definition":
+            continue
+        title = rec.get("normalized_text") or rec.get("raw_text") or ""
+        item = _item(
+            rec["id"],
+            "record",
+            title,
+            label=rec.get("role"),
+            actionable=False,
+            source_location=_source_location(rec),
+        )
+        role = rec.get("role")
+        if role in {"result_marker", "no_result_marker"}:
+            result_items.append(item)
+        elif role in {"user_annotation", "ai_annotation", "clarification_marker"}:
+            note_items.append(item)
+        else:
+            child_items.append(item)
+    sections = []
+    if child_items:
+        sections.append(_section("children", "Child Blocks", child_items))
+    if note_items:
+        sections.append(_section("notes", "Notes", note_items))
+    if result_items:
+        sections.append(_section("results", "Results", result_items))
+    return {
+        "context": path,
+        "project_ref": None,
+        "project_node_id": None,
+        "project_node_title": None,
+        "project_node_path": [],
+        "sections": sections,
+        "overflow": {},
+        "_project_title": f"#{obj['id']} {obj['object_type']} {obj['title']}",
+    }
 
 
 # ─── reviews / proposals ──────────────────────────────────────────────────────
@@ -522,8 +571,11 @@ def _node_subtree_end(node_info: dict, flat_nodes: List[dict]) -> int:
 
 
 def _get_project_children(conn, repo: Repository, project_id: int) -> List[dict]:
-    """Get all objects that belong to a project via relations."""
-    children = []
+    """Get objects visible in a project via relation, page location, or journal link."""
+    project = repo.get_object(project_id)
+    project_file = project.get("file_path") if project else None
+    project_title = project.get("title") if project else None
+    children_by_id: Dict[int, dict] = {}
     for obj_type in ("task", "idea", "mini_project", "reference", "resource"):
         try:
             rows = repo.list_objects(obj_type, limit=MAX_LIMIT)
@@ -531,6 +583,7 @@ def _get_project_children(conn, repo: Repository, project_id: int) -> List[dict]
             continue
         for row in rows:
             obj_id = row["id"]
+            attribution = None
             try:
                 rels = repo.relations_for_object(obj_id)
             except Exception:
@@ -543,8 +596,39 @@ def _get_project_children(conn, repo: Repository, project_id: int) -> List[dict]
                 for r in rels
             )
             if belongs:
-                children.append(row)
-    return children
+                linked_rule = any(
+                    r.get("relation_type") == "belongs_to"
+                    and isinstance(r.get("metadata"), dict)
+                    and str(r.get("metadata", {}).get("rule", "")).endswith("page_ref")
+                    for r in rels
+                )
+                attribution = "journal-link" if linked_rule and row.get("journal_date") else "relation"
+            elif project_file and row.get("file_path") == project_file:
+                attribution = "page"
+            elif project_title and _object_links_project(row, project_title, repo):
+                attribution = "journal-link"
+            if attribution and obj_id not in children_by_id:
+                copy = dict(row)
+                copy["_attribution"] = attribution
+                children_by_id[obj_id] = copy
+    return list(children_by_id.values())
+
+
+def _object_links_project(row: dict, project_title: str, repo: Repository) -> bool:
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    refs = meta.get("page_refs") or []
+    if project_title in refs:
+        return True
+    try:
+        records = repo.records_for_object(row["id"], limit=20)
+    except Exception:
+        return False
+    needles = {project_title, project_title.removeprefix("项目-")}
+    for rec in records:
+        text = rec.get("raw_text") or rec.get("normalized_text") or ""
+        if any(f"[[{needle}]]" in text for needle in needles if needle):
+            return True
+    return False
 
 
 def _add_child_sections(sections: List[dict], children: List[dict], repo: Repository):
@@ -560,6 +644,7 @@ def _add_child_sections(sections: List[dict], children: List[dict], repo: Reposi
         item = _item(
             row["id"], obj_type, row["title"],
             status=row.get("status"), source_location=loc,
+            attribution=row.get("_attribution"),
         )
         if obj_type == "task":
             actions.append(item)

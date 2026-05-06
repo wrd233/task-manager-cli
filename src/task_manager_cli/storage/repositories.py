@@ -111,6 +111,35 @@ class Repository:
 
     def upsert_object(self, obj: ActionObject, location: Location) -> int:
         location_id = self.upsert_location(location)
+        existing = self._find_existing_object_for_location(obj, location)
+        if existing and existing["source_item_id"] != obj.source_item_id:
+            self.conn.execute(
+                """
+                UPDATE objects SET
+                    object_type=?,
+                    title=?,
+                    status=?,
+                    source_item_id=?,
+                    canonical_location_id=?,
+                    confidence=?,
+                    created_at=COALESCE(created_at, ?),
+                    last_seen_at=CURRENT_TIMESTAMP,
+                    metadata_json=?
+                WHERE id=?
+                """,
+                (
+                    obj.object_type,
+                    obj.title,
+                    obj.status,
+                    obj.source_item_id,
+                    location_id,
+                    obj.confidence,
+                    obj.created_at,
+                    _json(obj.metadata),
+                    int(existing["id"]),
+                ),
+            )
+            return int(existing["id"])
         self.conn.execute(
             """
             INSERT INTO objects(
@@ -145,6 +174,80 @@ class Repository:
             ),
         )
         return int(self.conn.execute("SELECT id FROM objects WHERE canonical_source=? AND source_item_id=?", (obj.source_type, obj.source_item_id)).fetchone()["id"])
+
+    def _find_existing_object_for_location(self, obj: ActionObject, location: Location) -> Optional[sqlite3.Row]:
+        if location.block_uuid:
+            row = self.conn.execute(
+                """
+                SELECT o.*
+                FROM objects o
+                JOIN locations l ON l.id=o.canonical_location_id
+                WHERE o.canonical_source=? AND o.object_type=? AND l.block_uuid=?
+                ORDER BY o.last_seen_at DESC, o.id DESC
+                LIMIT 1
+                """,
+                (obj.source_type, obj.object_type, location.block_uuid),
+            ).fetchone()
+            if row:
+                return row
+        if location.file_path and location.line_start:
+            normalized = obj.title.strip()
+            return self.conn.execute(
+                """
+                SELECT o.*
+                FROM objects o
+                JOIN locations l ON l.id=o.canonical_location_id
+                WHERE o.canonical_source=? AND o.object_type=?
+                  AND l.file_path=? AND l.line_start=?
+                  AND (o.title=? OR o.source_item_id=?)
+                ORDER BY o.last_seen_at DESC, o.id DESC
+                LIMIT 1
+                """,
+                (obj.source_type, obj.object_type, location.file_path, location.line_start, normalized, obj.source_item_id),
+            ).fetchone()
+        return None
+
+    def update_object_after_writeback(
+        self,
+        object_id: int,
+        *,
+        status: Optional[str] = None,
+        title: Optional[str] = None,
+        dirty_reason: str = "shell_writeback",
+    ) -> None:
+        row = self.conn.execute("SELECT metadata_json FROM objects WHERE id=?", (object_id,)).fetchone()
+        if not row:
+            return
+        metadata = json.loads(row["metadata_json"] or "{}")
+        metadata["index_status"] = "updated_by_shell_writeback"
+        metadata["index_dirty_reason"] = dirty_reason
+        sets = ["metadata_json=?", "last_seen_at=CURRENT_TIMESTAMP"]
+        params: List[Any] = [_json(metadata)]
+        if status is not None:
+            sets.append("status=?")
+            params.append(status)
+        if title is not None:
+            sets.append("title=?")
+            params.append(title)
+        params.append(object_id)
+        self.conn.execute(f"UPDATE objects SET {', '.join(sets)} WHERE id=?", params)
+
+    def duplicate_objects_for_source_location(self, object_id: int) -> List[Dict[str, Any]]:
+        obj = self.get_object(object_id)
+        if not obj or not obj.get("file_path") or not obj.get("line_start"):
+            return []
+        rows = self.conn.execute(
+            """
+            SELECT o.*, l.file_path, l.page_name, l.journal_date, l.line_start
+            FROM objects o
+            JOIN locations l ON l.id=o.canonical_location_id
+            WHERE o.id != ? AND o.object_type=? AND l.file_path=? AND l.line_start=?
+            ORDER BY o.last_seen_at DESC, o.id DESC
+            LIMIT 20
+            """,
+            (object_id, obj.get("object_type"), obj.get("file_path"), obj.get("line_start")),
+        ).fetchall()
+        return [_load(row) for row in rows]
 
     def link_object_record(self, object_id: int, record_id: int, role: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         self.conn.execute(

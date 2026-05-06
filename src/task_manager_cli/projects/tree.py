@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from task_manager_cli.adapters.logseq.extractors import (
-    content_hash,
     is_reference_record,
     normalize_text,
     semantic_marker,
@@ -222,7 +221,7 @@ class ProjectTreeService:
         if block.uuid:
             return f"block:{block.uuid}"
         rel = self._relative(block.file_path)
-        return f"block:{rel}:{block.line_number}:{content_hash(block.raw)}"
+        return f"block:{rel}:{block.line_number}"
 
     def _relative(self, path: Path) -> str:
         graph = self.settings.logseq_graph_path

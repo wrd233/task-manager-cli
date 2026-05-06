@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from task_manager_cli.adapters.logseq.adapter import LogseqAdapter
 from task_manager_cli.adapters.logseq.extractors import semantic_marker
 from task_manager_cli.adapters.logseq.parser import parse_logseq_file
 from task_manager_cli.clarify.service import BASIC_QUESTIONS, ClarifyService, proposal_table
@@ -12,6 +13,7 @@ from task_manager_cli.config.settings import Settings
 from task_manager_cli.core.enums import ProposalType
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
 from task_manager_cli.ingest.sync import SyncService
+from task_manager_cli.ingest.merger import Merger
 from task_manager_cli.projects.tree import LABEL_BY_NODE_TYPE, ProjectTreeService
 from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.providers.base import DryRunProvider, provider_from_settings
@@ -24,6 +26,15 @@ from task_manager_cli.writes.logseq_writer import LogseqWriter, WritePreview
 
 
 ROOTS = {"today", "inbox", "waiting", "someday", "ideas", "projects", "mini", "reviews", "proposals"}
+
+QUICK_QUESTIONS = [
+    {"id": "handling", "text": "你希望如何处理这个条目？行动 / 等待 / 想法 / 资源 / 丢弃 / 稍后"},
+]
+STANDARD_QUESTIONS = [
+    {"id": "value", "text": "这个条目现在还有价值吗？"},
+    {"id": "classification", "text": "它更像行动 / 想法 / 资源 / 等待 / 未来可能 / 已完成 / 丢弃？"},
+    {"id": "next_step", "text": "如果是行动，下一步是什么？"},
+]
 
 
 @dataclass
@@ -39,6 +50,10 @@ class ShellContext:
     detail: bool = False
     preview: bool = False
     current_review_id: Optional[int] = None
+    current_object_id: Optional[int] = None
+    current_object_type: Optional[str] = None
+    current_object_title: Optional[str] = None
+    current_object_location: Optional[str] = None
 
 
 @dataclass
@@ -96,7 +111,7 @@ class HumanShellService:
             if command == "ls":
                 return self.ls(args)
             if command == "cd":
-                return self.cd(args[0] if args else "/")
+                return self.cd(" ".join(args) if args else "/")
             if command == "tree":
                 return self.tree()
             if command == "show":
@@ -172,7 +187,22 @@ class HumanShellService:
                 return "No previous context."
             target = self.context.previous_path
         elif target == "..":
-            target = self._parent_path(self.context.path)
+            if self.context.current_object_id:
+                if self.context.project_ref:
+                    project = self._object(self.context.project_ref)
+                    target = f"/projects/{project['title']}"
+                elif self.context.mini_ref:
+                    target = "/mini"
+                else:
+                    target = "/"
+            else:
+                target = self._parent_path(self.context.path)
+        else:
+            object_context = self._resolve_object_context(target)
+            if object_context:
+                self.context.previous_path = old
+                self._apply_context(object_context)
+                return self.context.path
         target = self._expand_alias(target)
         if not target.startswith("/"):
             target = self._join_path(self.context.path, target)
@@ -187,11 +217,7 @@ class HumanShellService:
             if not resolved:
                 return f"Path not found: {target}\nCandidates: {', '.join(candidates)}"
         self.context.previous_path = old
-        self.context.path = resolved["path"]
-        self.context.project_ref = resolved.get("project_ref")
-        self.context.project_node_id = resolved.get("project_node_id")
-        self.context.project_node_title = resolved.get("project_node_title")
-        self.context.mini_ref = resolved.get("mini_ref")
+        self._apply_context(resolved)
         return self.context.path
 
     def ls(self, args: Optional[List[str]] = None) -> str:
@@ -261,6 +287,7 @@ class HumanShellService:
             label = item.get("label") or ""
             src = item.get("source_location", "")
             item_type = item.get("type", "")
+            attribution = f"  [{item.get('attribution')}]" if item.get("attribution") else ""
 
             if item_type == "node":
                 label_str = f" [{label}]" if label else ""
@@ -271,12 +298,12 @@ class HumanShellService:
                 pid = item.get("proposal_id", iid)
                 lines.append(f"  [{iid}] proposal:{pid} {pt} {risk}")
             elif item_type in ("reference", "resource"):
-                lines.append(f"  #{iid} RESOURCE {title}  ({src})")
+                lines.append(f"  #{iid} RESOURCE {title}  ({src}){attribution}")
             elif item_type == "idea":
-                lines.append(f"  #{iid} IDEA {title}  ({src})")
+                lines.append(f"  #{iid} IDEA {title}  ({src}){attribution}")
             elif item_type in ("task", "mini_project"):
                 marker = status.upper() if status else item_type.upper()
-                lines.append(f"  #{iid} {marker} {title}  ({src})")
+                lines.append(f"  #{iid} {marker} {title}  ({src}){attribution}")
             elif item_type == "project":
                 lines.append(f"  #{iid} {title}")
             else:
@@ -341,6 +368,8 @@ class HumanShellService:
         return service.render_markdown(service.build(self.context.project_ref, detail=self.context.detail), detail=self.context.detail)
 
     def show(self, args: List[str]) -> str:
+        if not args and self.context.current_object_id:
+            args = [str(self.context.current_object_id)]
         if not args:
             return "Usage: show <object-id>|proposal <id>|review <id>"
         if args[0] == "proposal" and len(args) > 1:
@@ -351,9 +380,19 @@ class HumanShellService:
         obj = target.get("object") if target else None
         if not obj:
             return f"Object not found: {' '.join(args)}"
-        return f"#{obj['id']} {obj['object_type']} {obj.get('status') or ''} {obj['title']}\n{obj.get('file_path')}:{obj.get('line_start') or ''}"
+        lines = [f"#{obj['id']} {obj['object_type']} {obj.get('status') or ''} {obj['title']}", f"{obj.get('file_path')}:{obj.get('line_start') or ''}"]
+        metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
+        if metadata.get("index_status") == "updated_by_shell_writeback":
+            lines.append("index: updated by shell writeback")
+        duplicates = self.repo.duplicate_objects_for_source_location(int(obj["id"]))
+        if duplicates:
+            ids = ", ".join(f"#{item['id']}" for item in duplicates[:5])
+            lines.append(f"duplicates: hidden same source location {ids}")
+        return "\n".join(lines)
 
     def open(self, args: List[str]) -> str:
+        if not args and self.context.current_object_id:
+            args = [str(self.context.current_object_id)]
         if not args:
             return "Usage: open <object-id>"
         target = self.resolve_target(" ".join(args), allow_types={"project", "task", "idea", "mini_project", "reference", "resource"})
@@ -363,21 +402,94 @@ class HumanShellService:
         return f"{obj.get('file_path')}:{obj.get('line_start') or ''}\nblock_path: {obj.get('block_path') or []}"
 
     def find(self, query: str) -> str:
+        parts = shlex.split(query) if query else []
+        global_only = "--global" in parts
+        include_all = "--all" in parts
+        terms = [part for part in parts if part not in {"--global", "--all"}]
+        query = " ".join(terms)
         if not query:
             return "Usage: find <keyword>"
-        like = f"%{query}%"
-        rows = self.conn.execute(
-            """
-            SELECT o.*, l.file_path, l.page_name, l.journal_date, l.line_start
-            FROM objects o LEFT JOIN locations l ON l.id=o.canonical_location_id
-            WHERE o.title LIKE ? OR o.metadata_json LIKE ?
-            ORDER BY o.id DESC LIMIT 20
-            """,
-            (like, like),
-        ).fetchall()
+        if global_only:
+            rows = self._search_objects(query, limit=20)
+            return self._format_find_rows(rows, prefix="[global]")
+        context_ids = self._context_object_ids()
+        context_rows = self._search_objects(query, object_ids=context_ids, limit=20) if context_ids else []
+        if include_all:
+            global_rows = [row for row in self._search_objects(query, limit=20) if int(row["id"]) not in {int(item["id"]) for item in context_rows}]
+            lines = ["Context results:"]
+            lines.append(self._format_find_rows(context_rows) if context_rows else "No context matches.")
+            lines.append("\nGlobal results:")
+            lines.append(self._format_find_rows(global_rows, prefix="[global]") if global_rows else "No global matches.")
+            return "\n".join(lines)
+        if context_rows:
+            return self._format_find_rows(context_rows)
+        rows = self._search_objects(query, limit=20)
         if not rows:
             return "No matches."
-        return "\n".join(f"- #{row['id']} {row['object_type']} {row['title']} ({row['page_name']}:{row['line_start'] or ''})" for row in rows)
+        return "No context matches. Global matches:\n" + self._format_find_rows(rows, prefix="[global]")
+
+    def _search_objects(self, query: str, object_ids: Optional[List[int]] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        like = f"%{query}%"
+        params: List[Any] = [like, like]
+        id_sql = ""
+        if object_ids is not None:
+            if not object_ids:
+                return []
+            id_sql = " AND o.id IN (" + ",".join("?" for _ in object_ids) + ")"
+            params.extend(object_ids)
+        rows = self.conn.execute(
+            f"""
+            SELECT o.*, l.file_path, l.page_name, l.journal_date, l.line_start
+            FROM objects o LEFT JOIN locations l ON l.id=o.canonical_location_id
+            WHERE (o.title LIKE ? OR o.metadata_json LIKE ?) {id_sql}
+            ORDER BY o.id DESC LIMIT 20
+            """,
+            (*params,),
+        ).fetchall()
+        return self._dedupe_rows([self._object_row(row) for row in rows])[:limit]
+
+    def _context_object_ids(self) -> List[int]:
+        if self.context.current_object_id:
+            ids = [int(self.context.current_object_id)]
+            for record in self.repo.records_for_object(int(self.context.current_object_id), limit=100):
+                if record.get("role") != "definition" and record.get("id"):
+                    pass
+            return ids
+        inv = build_inventory(self.conn, self.context, self.repo, self.settings)
+        ids: List[int] = []
+        for section in inv.get("sections", []):
+            for item in section.get("items", []):
+                if item.get("type") in {"task", "idea", "mini_project", "reference", "resource", "project"}:
+                    try:
+                        ids.append(int(item.get("object_id") or item["id"]))
+                    except Exception:
+                        continue
+        return sorted(set(ids))
+
+    def _dedupe_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        result = []
+        for row in rows:
+            key = (row.get("file_path"), row.get("line_start"), row.get("object_type"), row.get("title"))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(row)
+        return result
+
+    def _format_find_rows(self, rows: List[Dict[str, Any]], prefix: str = "") -> str:
+        if not rows:
+            return "No matches."
+        lines = []
+        duplicate_count = 0
+        for row in rows:
+            duplicates = self.repo.duplicate_objects_for_source_location(int(row["id"]))
+            duplicate_count += len(duplicates)
+            mark = f"{prefix} " if prefix else ""
+            lines.append(f"- {mark}#{row['id']} {row['object_type']} {row['title']} ({row.get('page_name')}:{row.get('line_start') or ''})")
+        if duplicate_count:
+            lines.append(f"duplicate source-location objects hidden: {duplicate_count}")
+        return "\n".join(lines)
 
     def create_item(self, kind: str, text: str, preview_only: bool = False) -> str:
         if not text:
@@ -396,26 +508,35 @@ class HumanShellService:
         if self.context.preview and not self._confirm(self._location_preview(kind, preview, target, content) + "\n确认写入？ [y/N] "):
             return "Cancelled."
         op = self._apply_direct_preview(preview, f"{kind} {text}", target)
-        self._resync()
+        self._resync_light(preview.file_path)
         return f"{kind} written to {target} (op #{op.id})\nundo: undo {op.id}"
 
     def append_marker(self, command: str, args: List[str]) -> str:
-        if len(args) < 2:
+        if self.context.current_object_id and len(args) >= 1:
+            target_ref = str(self.context.current_object_id)
+            text_args = args
+        elif len(args) >= 2:
+            target_ref = args[0]
+            text_args = args[1:]
+        else:
             return f"Usage: {command} <object-id> \"text\""
         marker = {"note": "**[注]**", "ainote": "**[AI注]**", "result": "**[成果]**", "noresult": "**[无成果]**"}[command]
-        target = self.resolve_target(args[0], allow_types={"task", "idea", "mini_project", "project"})
+        target = self.resolve_target(target_ref, allow_types={"task", "idea", "mini_project", "project", "reference", "resource"})
         if not target:
-            return f"Object not found: {args[0]}"
+            return f"Object not found: {target_ref}"
         obj = target["object"]
         object_id = int(obj["id"])
-        preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), marker, " ".join(args[1:]), block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
-        if self.context.preview and not self._confirm(self._location_preview(command, preview, f"object:{object_id}", f"{marker} {' '.join(args[1:])}") + "\n确认写入？ [y/N] "):
+        content = " ".join(text_args)
+        preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), marker, content, block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
+        if self.context.preview and not self._confirm(self._location_preview(command, preview, f"object:{object_id}", f"{marker} {content}") + "\n确认写入？ [y/N] "):
             return "Cancelled."
-        op = self._apply_direct_preview(preview, f"{command} {args[0]}", f"object:{object_id}")
-        self._resync()
+        op = self._apply_direct_preview(preview, f"{command} {target_ref}", f"object:{object_id}")
+        self._resync_light(preview.file_path, changed_object_id=object_id)
         return f"{command} appended to #{object_id} (op #{op.id})"
 
     def change_task_marker(self, command: str, args: List[str]) -> str:
+        if not args and self.context.current_object_id:
+            args = [str(self.context.current_object_id)]
         if not args:
             return f"Usage: {command} <object-id> [reason]"
         target = self.resolve_target(args[0], allow_types={"task"})
@@ -428,12 +549,13 @@ class HumanShellService:
         if self.context.preview and not self._confirm(self._location_preview(command, preview, f"object:{object_id}", marker) + "\n确认写入？ [y/N] "):
             return "Cancelled."
         op = self._apply_direct_preview(preview, f"{command} {args[0]}", f"object:{object_id}")
+        self.repo.update_object_after_writeback(object_id, status=marker.lower(), dirty_reason="task_marker")
         extra = ""
         if command == "wait" and len(args) > 1:
             note_preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), "**[注]**", " ".join(args[1:]), block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
             note_op = self._apply_direct_preview(note_preview, f"wait-note {args[0]}", f"object:{object_id}")
             extra = f"; reason note op #{note_op.id}"
-        self._resync()
+        self._resync_light(preview.file_path, changed_object_id=object_id)
         hint = ""
         if command == "done" and not self._has_result_marker(object_id):
             hint = f"\n该条目已完成，但没有成果标注。可输入 result {object_id} \"...\" 或 noresult {object_id} \"...\""
@@ -449,7 +571,7 @@ class HumanShellService:
         object_id = int(obj["id"])
         preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), "**[注]**", "#someday", block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
         op = self._apply_direct_preview(preview, f"someday {args[0]}", f"object:{object_id}")
-        self._resync()
+        self._resync_light(preview.file_path, changed_object_id=object_id)
         return f"#someday appended to #{object_id} (op #{op.id})"
 
     def undo(self, ref: Optional[str] = None) -> str:
@@ -469,12 +591,12 @@ class HumanShellService:
             if op.backup_path and op.file_path and Path(op.backup_path).is_file():
                 self.writer.restore_backup(Path(op.backup_path), Path(op.file_path))
                 op.undone = True
-                self._resync()
+                self._resync_light(Path(op.file_path))
                 return f"Undone op #{op.id}: {op.command}"
             if op.created_file and op.file_path:
                 Path(op.file_path).unlink(missing_ok=True)
                 op.undone = True
-                self._resync()
+                self._resync_light(Path(op.file_path))
                 return f"Undone op #{op.id}: {op.command}"
             return f"Cannot undo op #{op.id}: missing rollback information."
         return "Nothing to undo."
@@ -586,6 +708,8 @@ class HumanShellService:
 
         if args[0] == "task":
             return self._edit_task(args[1:])
+        if args[0] in {"title", "content", "status"} and self.context.current_object_type == "task":
+            return self._edit_task([str(self.context.current_object_id), *args])
         if args[0] == "proposal":
             return self.proposal_action("edit", args[1:])
 
@@ -657,7 +781,8 @@ class HumanShellService:
         if not self._confirm("Apply this change? [y/N] "):
             return "Cancelled."
         op = self._apply_direct_preview(preview, f"edit task {target_ref} title", f"object:{object_id}")
-        self._resync()
+        self.repo.update_object_after_writeback(object_id, title=new_title, dirty_reason="task_title")
+        self._resync_light(preview.file_path, changed_object_id=object_id)
         return f"Task #{object_id} title updated (op #{op.id})\nundo: undo {op.id}"
 
     def _edit_task_content(self, target_ref: str, new_content: str) -> str:
@@ -685,13 +810,21 @@ class HumanShellService:
         ):
             return "Cancelled."
         op = self._apply_direct_preview(preview, f"edit task {target_ref} status {new_status}", f"object:{object_id}")
-        self._resync()
+        self.repo.update_object_after_writeback(object_id, status=marker.lower(), dirty_reason="task_marker")
+        self._resync_light(preview.file_path, changed_object_id=object_id)
         return f"Task #{object_id} -> {marker} (op #{op.id})\nundo: undo {op.id}"
 
     # ── clarify ───────────────────────────────────────────────────────────
 
     def clarify(self, args: List[str] = None) -> str:
         args = args or []
+        mode = "standard"
+        if args and args[0] in {"quick", "standard", "deep", "ai"}:
+            mode = args[0]
+            args = args[1:]
+        elif len(args) >= 2 and args[0] == "mode" and args[1] in {"quick", "standard", "deep", "ai"}:
+            mode = args[1]
+            args = args[2:]
         reviews = ReviewSessionService(self.conn)
         if args and args[0] == "status":
             return self._clarify_status()
@@ -709,22 +842,22 @@ class HumanShellService:
         if args and args[0] == "retry":
             if not self.context.current_review_id:
                 return "No current clarify review."
-            return self._run_clarify_review(self.context.current_review_id)
+            return self._run_clarify_review(self.context.current_review_id, mode=mode)
         if args and args[0] == "resume":
             if not self.context.current_review_id:
                 open_review = self._latest_shell_review()
                 if not open_review:
                     return "No shell clarify review to resume."
                 self.context.current_review_id = int(open_review["id"])
-            return self._run_clarify_review(self.context.current_review_id)
+            return self._run_clarify_review(self.context.current_review_id, mode=mode)
         ids = self._candidate_ids_for_context(limit=10)
         if not ids:
             return "No clarify candidates in this context."
         review_id = reviews.start(f"shell:{self.context.path}", item_refs=ids, title=f"Shell clarify {self.context.path}")
         self.context.current_review_id = review_id
-        return self._run_clarify_review(review_id)
+        return self._run_clarify_review(review_id, mode=mode)
 
-    def _run_clarify_review(self, review_id: int) -> str:
+    def _run_clarify_review(self, review_id: int, mode: str = "standard") -> str:
         reviews = ReviewSessionService(self.conn)
         generated: List[int] = []
         previews: List[Dict[str, Any]] = []
@@ -736,7 +869,21 @@ class HumanShellService:
             print(f"当前状态：{obj.get('status') or ''}")
             print(f"来源：{obj.get('page_name') or ''}:{obj.get('line_start') or ''}")
             answers = []
-            for index, question in enumerate(BASIC_QUESTIONS, 1):
+            questions = self._clarify_questions(mode)
+            if mode == "ai" and provider is not None:
+                payload = clarify_service.build_payload(review_id, item["id"], obj, "请生成最多 3 个必要问题。", project_ref=self.context.project_ref)
+                payload["clarify_mode"] = "ai_questions"
+                if isinstance(provider, DryRunProvider):
+                    previews.append(provider.preview_payload(payload))
+                    questions = QUICK_QUESTIONS
+                else:
+                    result = provider.generate(payload)
+                    questions = [
+                        {"id": f"ai_{idx + 1}", "text": q.get("question") or str(q)}
+                        for idx, q in enumerate((result.questions_for_user or [])[:3])
+                    ] or QUICK_QUESTIONS
+                reviews.update_item_clarify(item["id"], {"status": "asked", "provider": self.context.provider, "questions": questions, "ai_questions_only": True})
+            for index, question in enumerate(questions, 1):
                 answer = self.input_func(f"问题 {index}：{question['text']}\n> ").strip()
                 if answer == "quit":
                     reviews.set_status(review_id, "paused")
@@ -752,6 +899,9 @@ class HumanShellService:
                 reviews.record_answer(item["id"], question["id"], question["text"], answer)
                 answers.append(answer)
             else:
+                if mode == "ai":
+                    reviews.update_item_clarify(item["id"], {"status": "answered", "provider": self.context.provider, "ai_questions_only": True})
+                    continue
                 if provider is None:
                     reviews.update_item_clarify(item["id"], {"status": "answered", "provider": "off"})
                     continue
@@ -772,6 +922,15 @@ class HumanShellService:
         if previews:
             lines.append(f"Payload previews: {len(previews)}")
         return "\n".join(lines)
+
+    def _clarify_questions(self, mode: str) -> List[Dict[str, str]]:
+        if mode == "quick":
+            return QUICK_QUESTIONS
+        if mode == "deep":
+            return BASIC_QUESTIONS
+        if mode == "ai":
+            return QUICK_QUESTIONS
+        return STANDARD_QUESTIONS
 
     def provider(self, args: List[str]) -> str:
         if not args:
@@ -802,13 +961,15 @@ class HumanShellService:
             }[command]
             preview, target = self._preview_for_context(command, content)
             return self._location_preview(command, preview, target, content)
-        if command in {"result", "noresult", "note", "ainote"} and len(args) >= 2:
+        if command in {"result", "noresult", "note", "ainote"} and (len(args) >= 2 or self.context.current_object_id):
             marker = {"note": "**[注]**", "ainote": "**[AI注]**", "result": "**[成果]**", "noresult": "**[无成果]**"}[command]
-            target = self.resolve_target(args[1], allow_types={"task", "idea", "mini_project", "project"})
+            target_ref = args[1] if len(args) >= 2 and not self.context.current_object_id else str(self.context.current_object_id)
+            content_args = args[2:] if target_ref != str(self.context.current_object_id) else args[1:]
+            target = self.resolve_target(target_ref, allow_types={"task", "idea", "mini_project", "project", "reference", "resource"})
             if not target:
-                return f"Object not found: {args[1]}"
+                return f"Object not found: {target_ref}"
             obj = target["object"]
-            preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), marker, " ".join(args[2:]) or "...", block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
+            preview = self.writer.preview_append_marker_child(Path(obj["file_path"]), marker, " ".join(content_args) or "...", block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"))
             return self._location_preview(command, preview, f"object:{obj['id']}", marker)
         return "Unsupported where command."
 
@@ -974,20 +1135,57 @@ class HumanShellService:
             rel = Path(preview.file_path).relative_to(Path(self.settings.logseq_graph_path))
         except Exception:
             rel = preview.file_path
-        return "\n".join(
-            [
-                "将写入：",
-                f"graph: {self.settings.logseq_graph_path}",
-                f"file: {rel}",
-                f"target: {target}",
-                f"operation: {operation}",
-                f"line: {preview.line_start or ''}",
-                "content:",
-                f"  - {content}",
-                "diff:",
-                preview.diff[:1200],
-            ]
-        )
+        if self.context.detail:
+            return "\n".join(
+                [
+                    "将写入：",
+                    f"graph: {self.settings.logseq_graph_path}",
+                    f"file: {rel}",
+                    f"target: {target}",
+                    f"operation: {operation}",
+                    f"line: {preview.line_start or ''}",
+                    "content:",
+                    f"  - {content}",
+                    "diff:",
+                    preview.diff[:1200],
+                ]
+            )
+        old_line, new_line = self._preview_old_new(preview)
+        is_append = old_line == "" and new_line
+        heading = "将追加内容" if is_append else "将修改任务" if "task" in operation or operation in {"done", "doing", "wait"} else "将写入"
+        scope = "追加为目标 block 的子块" if is_append else "仅修改目标 block 首行，保留子块"
+        lines = [
+            f"将写入：{heading} {target}",
+            "",
+            f"file: {rel}:{preview.line_start or ''}",
+            f"operation: {operation}",
+            f"scope: {scope}",
+            "undo: available",
+        ]
+        if old_line:
+            lines.extend(["", "old:", f"  {old_line.strip()}"])
+        if new_line:
+            lines.extend(["", "new child:" if is_append else "new:", f"  {new_line.strip()}"])
+        return "\n".join(lines)
+
+    def _preview_old_new(self, preview: WritePreview) -> Tuple[str, str]:
+        old_line = ""
+        new_line = ""
+        for line in preview.diff.splitlines():
+            if line.startswith("---") or line.startswith("+++") or line.startswith("@@"):
+                continue
+            if line.startswith("-") and not old_line:
+                old_line = line[1:]
+            elif line.startswith("+"):
+                new_line = line[1:]
+        if not old_line and preview.line_start and preview.file_path.exists():
+            try:
+                old_lines = preview.file_path.read_text(encoding="utf-8").splitlines()
+                if 1 <= preview.line_start <= len(old_lines):
+                    old_line = old_lines[preview.line_start - 1]
+            except OSError:
+                pass
+        return old_line, new_line
 
     def _extract_preview_flag(self, args: List[str]) -> Tuple[bool, List[str]]:
         return "--preview" in args, [arg for arg in args if arg != "--preview"]
@@ -1082,6 +1280,14 @@ class HumanShellService:
     def _resync(self) -> None:
         SyncService(self.conn, self.settings).sync_logseq()
 
+    def _resync_light(self, changed_file: Optional[Path] = None, changed_object_id: Optional[int] = None) -> None:
+        if changed_file and Path(changed_file).exists():
+            result = LogseqAdapter(Path(self.settings.logseq_graph_path)).parse_file(Path(changed_file))
+            Merger(self.repo).ingest(result)
+        if changed_object_id:
+            self.repo.update_object_after_writeback(changed_object_id, dirty_reason="shell_writeback")
+        self.conn.commit()
+
     def _has_write_context(self) -> bool:
         return bool(self.context.project_ref or self.context.project_node_id or self.context.mini_ref)
 
@@ -1148,6 +1354,60 @@ class HumanShellService:
         if len(parts) == 1:
             return {"path": f"/{parts[0]}"}
         return None
+
+    def _apply_context(self, resolved: Dict[str, Any]) -> None:
+        self.context.path = resolved["path"]
+        self.context.project_ref = resolved.get("project_ref")
+        self.context.project_node_id = resolved.get("project_node_id")
+        self.context.project_node_title = resolved.get("project_node_title")
+        self.context.mini_ref = resolved.get("mini_ref")
+        self.context.current_object_id = resolved.get("current_object_id")
+        self.context.current_object_type = resolved.get("current_object_type")
+        self.context.current_object_title = resolved.get("current_object_title")
+        self.context.current_object_location = resolved.get("current_object_location")
+
+    def _resolve_object_context(self, target: str) -> Optional[Dict[str, Any]]:
+        raw = target.strip()
+        if not raw:
+            return None
+        parts = raw.split()
+        type_hint = None
+        ref = raw
+        if len(parts) == 2 and parts[0] in {"task", "mini", "mini_project", "idea", "resource", "reference", "project"}:
+            type_hint = "mini_project" if parts[0] == "mini" else parts[0]
+            ref = parts[1]
+        if ref.startswith("#"):
+            ref = ref[1:]
+        if not ref.isdigit() and type_hint is None:
+            return None
+        allow_types = {type_hint} if type_hint else {"task", "idea", "mini_project", "reference", "resource", "project"}
+        target_obj = self.resolve_target(ref, allow_types=allow_types)
+        if not target_obj:
+            return None
+        obj = target_obj["object"]
+        obj_type = obj["object_type"]
+        parent_project = self.context.project_ref
+        base = self.context.path
+        if parent_project:
+            try:
+                project = self._object(parent_project)
+                base = f"/projects/{project['title']}"
+            except Exception:
+                base = "/objects"
+        elif obj_type == "mini_project":
+            base = "/mini"
+        else:
+            base = "/objects"
+        label = "mini" if obj_type == "mini_project" else obj_type
+        return {
+            "path": f"{base}/{label}/{obj['id']}",
+            "project_ref": parent_project,
+            "mini_ref": str(obj["id"]) if obj_type == "mini_project" else self.context.mini_ref,
+            "current_object_id": int(obj["id"]),
+            "current_object_type": obj_type,
+            "current_object_title": obj["title"],
+            "current_object_location": f"{obj.get('file_path')}:{obj.get('line_start') or ''}",
+        }
 
     def _match_project_node(self, project_ref: str, parts: List[str]) -> Optional[Dict[str, Any]]:
         tree = ProjectTreeService(self.conn, self.settings).build(project_ref, detail=False)

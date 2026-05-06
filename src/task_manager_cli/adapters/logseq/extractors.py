@@ -28,7 +28,7 @@ PROJECT_MARKERS = [
 ]
 
 PROJECT_PREFIXES = ("项目-", "任务-", "学习-", "课程-", "阶段-")
-TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)\b\s*(.*)$")
+TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)(?:\s+(.+)|\s*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
 IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
 SEMANTIC_MARKER_RE = re.compile(
@@ -74,7 +74,10 @@ def parse_task(raw: str) -> Optional[Tuple[str, str]]:
     match = TASK_RE.match(raw)
     if not match:
         return None
-    return match.group(1), normalize_task_title(match.group(2))
+    title = normalize_task_title(match.group(2) or "")
+    if title.lower().strip(" :：") in {"list", "-list"}:
+        return None
+    return match.group(1), title
 
 
 def normalize_task_title(text: str) -> str:

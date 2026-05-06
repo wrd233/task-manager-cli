@@ -49,7 +49,7 @@ block path。 `object_record_links` 表达对象和记录之间的 `definition` 
 
 - Project：以 Logseq page identity 为主， `page:<relative-file-path>` 。
 - Block object：有 `id::` 时使用 `block:<uuid>` 。
-- 无 uuid block：使用 `block:<relative-file-path>:<line>:<content-hash>` 。
+- 无 uuid block：使用 `block:<relative-file-path>:<line>`，不把 task marker 或标题 hash 放入 canonical id。
 - 重复同步通过 SQLite unique key 幂等 upsert，不重复创建对象、记录或关系。
 - 第一版不做激进语义合并，避免把不同事项错误合并。
 

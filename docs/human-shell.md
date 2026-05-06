@@ -390,3 +390,74 @@ edit 1 content "..."            # 兼容旧行为 (Proposal edit)
 ## Not In V1.5.1
 
 Human Shell v1.5.1 不做复杂 TUI、全屏表格编辑、鼠标交互、文件系统 metadata 扫描、完整成果系统、Anki、项目树拖拽、移动块、删除块、合并块或重排、`edit task content` 与 `edit task title` 的差异化行为（本轮等价）。
+
+## Real Graph Fix
+
+### Object Context
+
+Human Shell 支持进入对象：
+
+```text
+cd 3313
+cd #3313
+cd task 3313
+cd mini 28729
+```
+
+进入 task / idea / mini project / resource / project 后，`ShellContext` 会记录当前 object id、type、title 和 source location。以下命令可省略 target：
+
+```text
+show
+open
+note "补充备注"
+ainote "补充 AI 注"
+result "形成成果"
+noresult "无需成果"
+done
+doing
+wait "等外部回复"
+edit title "新的标题"
+edit content "新的内容"
+edit status waiting
+```
+
+状态命令只支持 task。mini project context 下 `todo "..."` 会追加到该 mini project 下；task context 下创建子任务仍按当前项目位置处理，本轮不实现复杂子任务系统。
+
+### Tree / Ls / Find
+
+- `tree` 用于看项目页层级，parser 已支持 Tab / mixed Tab+space 缩进。
+- `ls` 用于看当前上下文可操作对象；项目下 `ls tasks` 会合并 `[relation]`、`[page]`、`[journal-link]`。
+- `find <query>` 默认当前上下文优先，并隐藏同一 source location 的重复对象。
+- `find --global <query>` 保留全局搜索。
+- `find --all <query>` 分区显示 context 和 global。
+
+### Writeback Consistency
+
+Direct Action 写回后不再默认全量 sync。shell 会直接 patch 当前 object 的 status/title，并对被修改文件做 single-file refresh。`show` 可能显示：
+
+```text
+index: updated by shell writeback
+```
+
+这表示当前索引已由 shell 写回路径更新；需要全图校验时手动运行 `tm sync logseq`。
+
+### Human Preview
+
+默认 preview 不再展示大段 raw diff，而是显示 file、line、operation、scope、undo、old/new 或 new child。需要 raw unified diff 时：
+
+```text
+detail on
+where todo "查询 Kakao T 支付支持"
+```
+
+### Clarify Modes
+
+```text
+clarify quick
+clarify standard
+clarify deep
+clarify ai
+clarify mode quick
+```
+
+`quick` 只问 1 个处理方式问题；`standard` 默认问 2-3 个关键问题；`deep` 保留原完整问题集；`ai` 调用 provider 生成最多 3 个 `questions_for_user`，只记录问题和回答，不直接写回、不 apply。

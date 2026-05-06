@@ -216,3 +216,26 @@ clarify cancel
 - `clarify cancel`：清空当前 shell review 指针，不删除 Review Session。
 
 Provider 仍由 shell 内 `provider off|dry-run|mock|deepseek` 控制。恢复流程不会让 provider 直接 apply，也不会绕过 Proposal 审核。
+
+## Human Shell Clarify Modes
+
+```text
+clarify quick
+clarify standard
+clarify deep
+clarify ai
+clarify mode quick
+```
+
+- `quick`：只问 1 个处理方式问题，适合快速清 inbox。
+- `standard`：默认模式，问 2-3 个关键问题。
+- `deep`：保留完整 9 问。
+- `ai`：调用 provider 生成最多 3 个 `questions_for_user`，只记录问题和用户回答，不直接生成 writeback、不 apply、不修改事实。
+
+AI questions 边界：
+
+- provider 只能返回 `questions_for_user`。
+- shell 最多展示 3 个问题。
+- 用户可 `skip` 或 `quit`。
+- AI questions mode 不调用 Proposal 转换，因此不会创建写回 Proposal。
+- 真实 provider 是否可用取决于 provider 配置；`mock` 会生成本地测试问题。

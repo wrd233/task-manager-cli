@@ -195,3 +195,31 @@ undo 3
 ### `edit task status`
 
 `edit task <target> status <status>` 复用已有的 `preview_update_task_marker`，修改 TODO/DOING/DONE/WAITING marker，遵循已有的 preview/backup/undo 保护。
+
+## Real Graph Fix: Lightweight Refresh
+
+Human Shell Direct Action 不再默认调用全量 `sync_logseq()`：
+
+```text
+writeback apply
+→ direct DB patch 当前 object status/title
+→ single-file refresh 被修改文件
+→ 用户需要时手动 tm sync logseq
+```
+
+`done` / `doing` / `wait` / `edit task status` 会立即更新当前 object 的 `status`；`edit task title` 会立即更新当前 object 的 `title`。新增 `todo` / `idea` / `mini` / `resource` 通过单文件 refresh 进入当前索引。
+
+对象身份策略：
+
+- 有 `id::` block property 时，使用 `block:<uuid>`。
+- 无 uuid 时，使用 `block:<relative-file>:<line_start>`，不把 task marker 或标题 hash 放入 canonical id。
+- ingest 时如果发现同一 file + line + object type 的旧对象，会更新原 object，而不是插入新 object。
+- 历史重复对象不会被批量删除；`show` / `find` 会提示并优先展示 active/latest 结果。
+
+preview 默认展示人类决策视图：file、line、operation、scope、undo、old/new 或 new child。raw unified diff 只在 `detail on` 或底层 Proposal preview 中展示。
+
+撤销后 shell 会对恢复的文件执行单文件 refresh。若用户怀疑外部编辑导致全局索引过期，可运行：
+
+```bash
+tm sync logseq
+```

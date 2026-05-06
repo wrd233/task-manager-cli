@@ -5,7 +5,6 @@ from typing import Dict, Iterable, List, Optional, Set
 from task_manager_cli.adapters.base import AdapterResult, CandidateWarning
 from task_manager_cli.adapters.logseq.extractors import (
     block_refs,
-    content_hash,
     embeds,
     journal_date_from_path,
     normalize_text,
@@ -75,7 +74,7 @@ class LogseqAdapter:
         rel = self._relative(block.file_path)
         if block.uuid:
             return f"block:{block.uuid}"
-        return f"block:{rel}:{block.line_number}:{content_hash(block.raw)}"
+        return f"block:{rel}:{block.line_number}"
 
     def _location_for_page(self, parsed: ParsedLogseqFile) -> Location:
         source_id = self._page_source_id(parsed)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from task_manager_cli.adapters.logseq.parser import LogseqBlock, parse_logseq_file
+from task_manager_cli.adapters.logseq.parser import indent_level
 from task_manager_cli.core.errors import TaskManagerError
 
 
@@ -39,7 +40,7 @@ class LogseqWriter:
         lines = path.read_text(encoding="utf-8").splitlines()
         block = self._resolve_block(path, block_uuid=block_uuid, line_start=line_start)
         insert_at = self._subtree_end_line(block, lines)
-        child_indent = " " * ((block.indent + 1) * 4)
+        child_indent = self._child_indent(block.raw)
         new_block_lines = self._format_block_lines(content, child_indent)
         new_lines = lines[:insert_at] + new_block_lines + lines[insert_at:]
         return self._preview(path, lines, new_lines, line_start=block.line_number, block_uuid=block.uuid)
@@ -53,7 +54,7 @@ class LogseqWriter:
         if section is None:
             raise WriteError(f"Section marker not found: {section_marker}")
         insert_at = self._subtree_end_line(section, lines)
-        child_indent = " " * ((section.indent + 1) * 4)
+        child_indent = self._child_indent(section.raw)
         new_block_lines = self._format_block_lines(content, child_indent)
         new_lines = lines[:insert_at] + new_block_lines + lines[insert_at:]
         return self._preview(path, lines, new_lines, line_start=section.line_number, block_uuid=section.uuid)
@@ -118,7 +119,6 @@ class LogseqWriter:
         index = block.line_number - 1
         old_line = lines[index]
 
-        indent = " " * (block.indent * 4) if block.indent else ""
         bullet_match = re.match(r"^(\s*-\s+)", old_line)
         if not bullet_match:
             raise WriteError("Target block does not start with a bullet.")
@@ -131,11 +131,11 @@ class LogseqWriter:
             )
             if task_marker_match:
                 marker = task_marker_match.group(2)
-                new_line = f"{indent}{bullet_match.group(1)}{marker} {new_text}".rstrip()
+                new_line = f"{bullet_prefix}{marker} {new_text}".rstrip()
             else:
-                new_line = f"{indent}{bullet_match.group(1)}{new_text}".rstrip()
+                new_line = f"{bullet_prefix}{new_text}".rstrip()
         else:
-            new_line = f"{indent}{bullet_match.group(1)}{new_text}".rstrip()
+            new_line = f"{bullet_prefix}{new_text}".rstrip()
 
         new_lines = list(lines)
         new_lines[index] = new_line
@@ -201,8 +201,11 @@ class LogseqWriter:
     def _is_property_or_continuation(self, line: str, parent_indent: int) -> bool:
         if not line.strip():
             return True
-        leading = len(line) - len(line.lstrip(" "))
-        return leading > parent_indent * 4 and not line.lstrip().startswith("-")
+        return indent_level(line) > parent_indent and not line.lstrip(" \t").startswith("-")
+
+    def _child_indent(self, raw_line: str) -> str:
+        leading = raw_line[: len(raw_line) - len(raw_line.lstrip(" \t"))]
+        return f"{leading}\t" if "\t" in leading else f"{leading}    "
 
     def _format_block_lines(self, content: str, indent: str) -> List[str]:
         raw_lines = content.splitlines() or [content]

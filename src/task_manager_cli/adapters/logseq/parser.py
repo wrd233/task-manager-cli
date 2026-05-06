@@ -126,8 +126,10 @@ class ParsedLogseqFile:
 
 
 def indent_level(line: str) -> int:
-    leading = len(line) - len(line.lstrip(" "))
-    return leading // 4
+    leading_ws = line[: len(line) - len(line.lstrip(" \t"))]
+    tabs = leading_ws.count("\t")
+    spaces = leading_ws.count(" ")
+    return tabs + spaces // 4
 
 
 def parse_page_properties(lines: List[str]) -> Tuple[Dict[str, str], int]:
