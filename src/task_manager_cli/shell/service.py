@@ -18,6 +18,7 @@ from task_manager_cli.providers.base import DryRunProvider, provider_from_settin
 from task_manager_cli.reviews.service import ReviewSessionService
 from task_manager_cli.projects.quality import ProjectQualityService
 from task_manager_cli.shell.completion import ShellCompleter
+from task_manager_cli.shell.inventory import DEFAULT_LIMIT, build_inventory
 from task_manager_cli.storage.repositories import Repository
 from task_manager_cli.writes.logseq_writer import LogseqWriter, WritePreview
 
@@ -93,7 +94,7 @@ class HumanShellService:
             if command == "pwd":
                 return self.context.path
             if command == "ls":
-                return self.ls()
+                return self.ls(args)
             if command == "cd":
                 return self.cd(args[0] if args else "/")
             if command == "tree":
@@ -131,7 +132,9 @@ class HumanShellService:
             if command == "preview" and args and args[0] in {"on", "off"}:
                 self.context.preview = args[0] == "on"
                 return f"preview: {args[0]}"
-            if command in {"accept", "reject", "preview", "apply", "edit", "supersede"}:
+            if command == "edit" and args:
+                return self._route_edit(args)
+            if command in {"accept", "reject", "preview", "apply", "supersede"}:
                 return self.proposal_action(command, args)
             if command == "clarify":
                 return self.clarify(args)
@@ -191,27 +194,145 @@ class HumanShellService:
         self.context.mini_ref = resolved.get("mini_ref")
         return self.context.path
 
-    def ls(self) -> str:
-        path = self.context.path
-        if path == "/":
-            return "\n".join(f"- {item}" for item in sorted(ROOTS))
-        if path == "/projects":
-            return self._objects_list("project")
-        if path == "/mini":
-            return self._objects_list("mini_project")
-        if path == "/ideas":
-            return self._objects_list("idea")
-        if path == "/proposals":
-            return self.proposals()
-        if path.startswith("/projects/") and self.context.project_ref:
-            tree = ProjectTreeService(self.conn, self.settings).build(self.context.project_ref)
-            lines = [f"Project: {tree['project']['title']}", f"Nodes: {tree['summary']['node_count']}"]
-            for node in tree.get("tree", [])[:12]:
-                lines.append(f"- [{LABEL_BY_NODE_TYPE.get(node['node_type'], node['node_type'])}] {node['title']}")
-            return "\n".join(lines)
-        if path in {"/today", "/inbox", "/waiting", "/someday"}:
-            return self._context_objects(path)
-        return f"Context: {path}"
+    def ls(self, args: Optional[List[str]] = None) -> str:
+        """List visible objects in current context, with optional filters.
+
+        Filters: tasks, todo, doing, waiting, ideas, resources, mini, nodes, proposals, all.
+        """
+        args = args or []
+        filter_name = args[0].lower() if args and not args[0].startswith("--") else None
+        show_all = "--all" in args
+
+        inv = build_inventory(self.conn, self.context, self.repo, self.settings)
+        sections = inv.get("sections", [])
+        if not sections and not inv.get("_project_title"):
+            project_title = inv.get("_project_title")
+            if project_title:
+                return f"Project: {project_title}\n(empty)"
+            return f"Context: {inv.get('context', self.context.path)}\n(empty)"
+
+        lines = []
+        project_title = inv.get("_project_title") or inv.get("project_node_title")
+        if project_title:
+            lines.append(f"Project: {project_title}")
+
+        # Build section filter map
+        section_map = {s["type"]: s for s in sections}
+        note = inv.get("_attribution_note")
+        fallback_section = section_map.pop("_fallback_note", None)
+        note_section = section_map.pop("_note", None)
+
+        if filter_name and filter_name != "all":
+            return self._filtered_ls(filter_name, section_map, note, fallback_section, lines, show_all)
+
+        # Default: show all sections with limits and overflow
+        overflow = inv.get("overflow", {})
+        for section_type, section in section_map.items():
+            items = section.get("items", [])
+            if not items:
+                continue
+            label = section.get("label", section_type)
+            item_limit = None if show_all else DEFAULT_LIMIT
+            shown = items[:item_limit]
+            extra = len(items) - len(shown)
+            lines.append(f"\n{label}:")
+            lines.extend(self._format_section_items(shown, section_type))
+            if extra > 0:
+                lines.append(f"  ... 还有 {extra} 条，可用 ls {section_type} --all")
+
+        if fallback_section:
+            lines.append("\n当前 node 关联对象不足，以下为项目级候选：")
+            f_items = fallback_section.get("items", [])
+            shown = f_items[:DEFAULT_LIMIT]
+            lines.extend(self._format_section_items(shown, fallback_section.get("type", "")))
+            extra = len(f_items) - len(shown)
+            if extra > 0:
+                lines.append(f"  ... 还有 {extra} 条")
+
+        return "\n".join(lines) if lines else "No items."
+
+    def _format_section_items(self, items: List[dict], section_type: str) -> List[str]:
+        """Format inventory items for display."""
+        lines = []
+        for item in items:
+            iid = item.get("id", "?")
+            title = item.get("title", "")
+            status = item.get("status") or ""
+            label = item.get("label") or ""
+            src = item.get("source_location", "")
+            item_type = item.get("type", "")
+
+            if item_type == "node":
+                label_str = f" [{label}]" if label else ""
+                lines.append(f"  [{iid}] {label_str} {title}")
+            elif item_type == "proposal":
+                pt = item.get("proposal_type", "")
+                risk = item.get("risk", "")
+                pid = item.get("proposal_id", iid)
+                lines.append(f"  [{iid}] proposal:{pid} {pt} {risk}")
+            elif item_type in ("reference", "resource"):
+                lines.append(f"  #{iid} RESOURCE {title}  ({src})")
+            elif item_type == "idea":
+                lines.append(f"  #{iid} IDEA {title}  ({src})")
+            elif item_type in ("task", "mini_project"):
+                marker = status.upper() if status else item_type.upper()
+                lines.append(f"  #{iid} {marker} {title}  ({src})")
+            elif item_type == "project":
+                lines.append(f"  #{iid} {title}")
+            else:
+                lines.append(f"  [#{iid}] {item_type} {title}")
+        return lines
+
+    def _filtered_ls(self, filter_name: str, section_map: dict, note, fallback_section, header_lines: List[str], show_all: bool = False) -> str:
+        """Handle filtered ls output."""
+        lines = list(header_lines)
+
+        # Filter mapping
+        filter_to_sections = {
+            "tasks": ["actions"],
+            "todo": ["actions"],
+            "doing": ["actions"],
+            "waiting": ["actions"],
+            "ideas": ["ideas"],
+            "resources": ["resources"],
+            "mini": ["mini_projects"],
+            "nodes": ["nodes"],
+            "proposals": ["proposals"],
+        }
+
+        target_sections = filter_to_sections.get(filter_name, [])
+        if not target_sections:
+            return f"Unknown filter: {filter_name}. Try: tasks, todo, doing, waiting, ideas, resources, mini, nodes, proposals, all"
+
+        # Status filtering for todo/doing/waiting
+        status_filter = None
+        if filter_name in ("todo", "doing", "waiting"):
+            status_filter = filter_name
+
+        found = 0
+        for stype in target_sections:
+            section = section_map.get(stype)
+            if not section:
+                continue
+            items = section.get("items", [])
+            if status_filter:
+                items = [it for it in items if (it.get("status") or "").lower() == status_filter]
+            if not items:
+                continue
+            label = section.get("label", stype)
+            lines.append(f"\n{label}:")
+            limit = None if show_all else DEFAULT_LIMIT
+            shown = items[:limit]
+            lines.extend(self._format_section_items(shown, stype))
+            found += 1
+            extra = len(items) - len(shown)
+            if extra > 0:
+                lines.append(f"  ... 还有 {extra} 条，可用 ls {filter_name} --all")
+
+        if not found:
+            return "\n".join(lines) + f"\nNo {filter_name} found."
+
+        return "\n".join(lines)
 
     def tree(self) -> str:
         if not self.context.project_ref:
@@ -455,6 +576,119 @@ class HumanShellService:
             self.conn.commit()
             return f"Superseded proposal {proposal_id} with {self._proposal_id(args[1])}."
         return f"Unsupported proposal command: {command}"
+
+    # ── edit routing ──────────────────────────────────────────────────────
+
+    def _route_edit(self, args: List[str]) -> str:
+        """Route edit command: edit task ... or edit proposal ... or edit <N> ..."""
+        if not args:
+            return "Usage: edit task|proposal <target> <field> <value>"
+
+        if args[0] == "task":
+            return self._edit_task(args[1:])
+        if args[0] == "proposal":
+            return self.proposal_action("edit", args[1:])
+
+        # Backward compatibility: edit <N> content|reason|risk|marker <value>
+        first = args[0]
+        if first.isdigit():
+            num = int(first)
+            pid_exists = num in self.local_proposal_map
+            obj_exists = self.repo.resolve_object_id(first) is not None
+            field = args[1].lower() if len(args) >= 2 else ""
+
+            if pid_exists and obj_exists:
+                proposal_only = {"reason", "risk", "marker"}
+                task_only = {"title", "status"}
+                if field in proposal_only:
+                    return self.proposal_action("edit", args)
+                if field in task_only:
+                    return self._edit_task(args)
+                # content overlaps both; show ambiguity for safety
+                if field == "content":
+                    return self.proposal_action("edit", args)  # backwards compat
+                return (
+                    f"歧义：{first} 同时匹配 Proposal 和对象。\n"
+                    f"请使用 edit proposal {first} ... 或 edit task {first} ..."
+                )
+            if pid_exists:
+                return self.proposal_action("edit", args)
+            if obj_exists:
+                return self._edit_task(args)
+            return f"Proposal [{first}] 不存在。请先运行 proposals 或 ls proposals 查看当前编号。"
+
+        return f"Unknown edit target: {args[0]}. Use edit task ... or edit proposal ..."
+
+    def _edit_task(self, args: List[str]) -> str:
+        if not args:
+            return "Usage: edit task <target> title|content|status <value>"
+        if len(args) < 3:
+            return "Usage: edit task <target> title|content|status <value>"
+        target_ref = args[0]
+        field = args[1].lower()
+        value = " ".join(args[2:])
+
+        if field == "title":
+            return self._edit_task_title(target_ref, value)
+        if field == "content":
+            return self._edit_task_content(target_ref, value)
+        if field == "status":
+            return self._edit_task_status(target_ref, value)
+        return f"Unknown field: {field}. Supported: title, content, status"
+
+    def _edit_task_title(self, target_ref: str, new_title: str) -> str:
+        if not new_title:
+            return "Usage: edit task <target> title \"new title\""
+        target = self.resolve_target(target_ref, allow_types={"task"})
+        if not target:
+            return f"Task not found: {target_ref}"
+        obj = target["object"]
+        object_id = int(obj["id"])
+
+        preview = self.writer.preview_modify_block_text(
+            Path(obj["file_path"]),
+            block_uuid=obj.get("block_uuid"),
+            line_start=obj.get("line_start"),
+            new_text=new_title,
+            preserve_task_marker=True,
+        )
+        # Always show preview for block text modification
+        print(self._location_preview("edit task title", preview, f"object:{object_id}", new_title))
+        if not self._confirm("Apply this change? [y/N] "):
+            return "Cancelled."
+        op = self._apply_direct_preview(preview, f"edit task {target_ref} title", f"object:{object_id}")
+        self._resync()
+        return f"Task #{object_id} title updated (op #{op.id})\nundo: undo {op.id}"
+
+    def _edit_task_content(self, target_ref: str, new_content: str) -> str:
+        # This round: equivalent to title (preserves task marker)
+        return self._edit_task_title(target_ref, new_content)
+
+    def _edit_task_status(self, target_ref: str, new_status: str) -> str:
+        marker_map = {"todo": "TODO", "doing": "DOING", "done": "DONE", "waiting": "WAITING"}
+        marker = marker_map.get(new_status.lower())
+        if not marker:
+            return f"Unknown status: {new_status}. Supported: todo, doing, waiting, done"
+        target = self.resolve_target(target_ref, allow_types={"task"})
+        if not target:
+            return f"Task not found: {target_ref}"
+        obj = target["object"]
+        object_id = int(obj["id"])
+
+        preview = self.writer.preview_update_task_marker(
+            Path(obj["file_path"]), marker,
+            block_uuid=obj.get("block_uuid"), line_start=obj.get("line_start"),
+        )
+        if self.context.preview and not self._confirm(
+            self._location_preview("edit task status", preview, f"object:{object_id}", marker)
+            + "\n确认写入？ [y/N] "
+        ):
+            return "Cancelled."
+        op = self._apply_direct_preview(preview, f"edit task {target_ref} status {new_status}", f"object:{object_id}")
+        self._resync()
+        return f"Task #{object_id} -> {marker} (op #{op.id})\nundo: undo {op.id}"
+
+    # ── clarify ───────────────────────────────────────────────────────────
 
     def clarify(self, args: List[str] = None) -> str:
         args = args or []
@@ -796,7 +1030,13 @@ class HumanShellService:
         return next((row for row in rows if str(row.get("review_type", "")).startswith("shell:") and row.get("status") in {"open", "in_progress", "paused"}), None)
 
     def completion_project_names(self) -> List[str]:
-        return [row["title"] for row in self.repo.list_objects("project", limit=100)]
+        names = []
+        for row in self.repo.list_objects("project", limit=100):
+            title = row["title"]
+            names.append(title)
+            if title.startswith("项目-"):
+                names.append(title[3:])
+        return names
 
     def completion_mini_names(self) -> List[str]:
         return [row["title"] for row in self.repo.list_objects("mini_project", limit=100)]
@@ -827,6 +1067,17 @@ class HumanShellService:
         if not self.local_proposal_map:
             self.proposals()
         return [str(index) for index in sorted(self.local_proposal_map)]
+
+    def completion_relative_in_context(self, token: str) -> List[str]:
+        """Return relative completion candidates based on current context."""
+        path = self.context.path
+        if path == "/projects" or (path == "/" and not token.startswith("/")):
+            return self.completion_project_names()
+        if path == "/mini":
+            return self.completion_mini_names()
+        if path.startswith("/projects/") and self.context.project_ref:
+            return self.completion_project_node_names()
+        return []
 
     def _resync(self) -> None:
         SyncService(self.conn, self.settings).sync_logseq()
@@ -925,7 +1176,13 @@ class HumanShellService:
 
     def _proposal_id(self, ref: str) -> int:
         value = int(ref)
-        return self.local_proposal_map.get(value, value)
+        if value in self.local_proposal_map:
+            return self.local_proposal_map[value]
+        if self.local_proposal_map:
+            raise TaskManagerError(
+                f"Proposal [{value}] 不存在。请先运行 proposals 或 ls proposals 查看当前编号。"
+            )
+        return value
 
     def _objects_list(self, object_type: str) -> str:
         rows = self.repo.list_objects(object_type, limit=50)

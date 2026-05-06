@@ -103,6 +103,44 @@ class LogseqWriter:
         new_lines[index] = new_line
         return self._preview(path, lines, new_lines, line_start=block.line_number, block_uuid=block.uuid)
 
+    def preview_modify_block_text(
+        self,
+        file_path: Path,
+        block_uuid: Optional[str] = None,
+        line_start: Optional[int] = None,
+        new_text: str = "",
+        preserve_task_marker: bool = True,
+    ) -> WritePreview:
+        path = Path(file_path).expanduser()
+        self._ensure_inside_graph(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        block = self._resolve_block(path, block_uuid=block_uuid, line_start=line_start)
+        index = block.line_number - 1
+        old_line = lines[index]
+
+        indent = " " * (block.indent * 4) if block.indent else ""
+        bullet_match = re.match(r"^(\s*-\s+)", old_line)
+        if not bullet_match:
+            raise WriteError("Target block does not start with a bullet.")
+        bullet_prefix = bullet_match.group(1)
+
+        if preserve_task_marker:
+            task_marker_match = re.match(
+                r"^(\s*-\s+)(TODO|DOING|DONE|WAITING|LATER|NOW)(\s+.*|\s*)$",
+                old_line,
+            )
+            if task_marker_match:
+                marker = task_marker_match.group(2)
+                new_line = f"{indent}{bullet_match.group(1)}{marker} {new_text}".rstrip()
+            else:
+                new_line = f"{indent}{bullet_match.group(1)}{new_text}".rstrip()
+        else:
+            new_line = f"{indent}{bullet_match.group(1)}{new_text}".rstrip()
+
+        new_lines = list(lines)
+        new_lines[index] = new_line
+        return self._preview(path, lines, new_lines, line_start=block.line_number, block_uuid=block.uuid)
+
     def apply(self, preview: WritePreview, expected_sha256: Optional[str], backup_dir: Path) -> Path:
         path = preview.file_path
         self._ensure_inside_graph(path)

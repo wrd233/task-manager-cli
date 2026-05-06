@@ -166,3 +166,32 @@ undo 3
 可撤销的 shell operation 包括 append TODO / idea / mini / resource、append note / ainote / result / noresult、task marker change，以及 shell 触发的 Proposal apply rollback。撤销后该 operation 标记为 `undone`，重复撤销会被拒绝。
 
 连续多次写回同一文件时，每个 Direct Action 都保留自己的备份或 inverse 信息。撤销指定操作会恢复该操作记录中的文件快照；如果后续操作依赖前序内容，shell 会提示风险或失败原因，而不是假装成功。
+
+## V1.5.1: `edit task` 写回边界
+
+### `preview_modify_block_text` 保守规则
+
+`edit task title` 和 `edit task content` 通过 `LogseqWriter.preview_modify_block_text()` 实现，遵循极度保守的修改策略：
+
+1. **只修改目标 block 首行** — 通过 uuid（优先）或 line_start 精确定位
+2. **保留缩进** — 完全保留原行前导空白
+3. **保留 bullet** — 保留 `- ` 前缀
+4. **保留 task marker** — `edit task title` 保留 TODO/DOING/DONE/WAITING marker；`edit task content` 本轮等价于 title，也保留 marker
+5. **保留子块** — 子块、属性块完全不接触
+6. **保留 block uuid** — `id::` 属性不修改
+
+### 强制 preview
+
+`edit task title` 和 `edit task content` **始终显示 preview 并要求确认**，不受 `preview on/off` 设置影响。这是因为修改块文本属于高风险操作。
+
+### 安全保证
+
+- 修改前显示 unified diff
+- 修改前自动备份原文件
+- 支持 undo 恢复
+- 不移动、不删除、不重排、不破坏子块
+- 修改后 resync 可识别新内容
+
+### `edit task status`
+
+`edit task <target> status <status>` 复用已有的 `preview_update_task_marker`，修改 TODO/DOING/DONE/WAITING marker，遵循已有的 preview/backup/undo 保护。

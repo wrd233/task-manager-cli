@@ -315,6 +315,78 @@ complete cd 出
 
 Completion 只读：不调用 provider、不写 Logseq、不修改数据库、不建议敏感值。候选最多展示前 20 个，中文候选可按前缀匹配；带空格或 `/` 的名称不会使 shell 崩溃，实际执行时建议用引号包住。
 
-## Not In V1.5
+## V1.5.1 Additions
 
-Human Shell v1.5 不做复杂 TUI、全屏表格编辑、鼠标交互、文件系统 metadata 扫描、完整成果系统、Anki、项目树拖拽、移动块、删除块、合并块或重排。
+### Context Inventory & `ls` IDs
+
+项目上下文下 `ls` 使用统一的 Context Inventory 显示可操作对象编号：
+
+```text
+ta:/projects/韩国旅行> ls
+Project: 韩国旅行
+
+Nodes:
+  [block:...]  [工作流] 出行交通
+
+Open Actions:
+  #123 TODO 整理韩国打车攻略  (项目-韩国旅行:8)
+  #124 DOING 写旅行攻略初稿  (项目-韩国旅行:12)
+
+Ideas:
+  #201 IDEA 返点公司风险评分表  (项目-韩国旅行:18)
+
+Resources:
+  #301 RESOURCE Kakao T 官方说明  (项目-韩国旅行:22)
+
+Mini Projects:
+  #401 MINI 整理打车攻略  (项目-韩国旅行:25)
+```
+
+`ls` 过滤器：
+- `ls tasks` / `ls todo` / `ls doing` / `ls waiting` — 按状态过滤
+- `ls ideas` / `ls resources` / `ls mini` / `ls nodes` / `ls proposals` — 按类型过滤
+- `ls all` — 显示全部
+
+`tree` 仍负责结构视图，`ls` 负责可操作对象列表。
+
+### 相对补全
+
+`/projects` 下支持相对项目名 Tab 补全：
+
+```text
+ta:/projects> 韩<Tab>      → 补全为 项目-韩国旅行
+ta:/projects> cd 韩<Tab>   → 补全为 /projects/项目-韩国旅行
+ta:/mini> 整<Tab>          → 补全 mini project 名
+```
+
+### `edit task` 命令
+
+```text
+edit task <target> title "新标题"     # 修改任务标题（保留 TODO/DOING marker）
+edit task <target> content "新内容"   # 本轮等价于 title
+edit task <target> status waiting    # 修改状态：todo/doing/waiting/done
+```
+
+安全规则：
+- 只修改目标 block 首行，保留缩进、bullet、task marker、子块
+- `edit task title/content` 始终显示 preview 并要求确认，不受 `preview on/off` 影响
+- 支持 backup + undo
+- 不移动、不删除、不重排、不破坏子块
+
+### `edit` 命令路由
+
+`edit proposal` 和 `edit task` 明确分开：
+
+```text
+edit proposal 1 content "..."   # 编辑 Proposal
+edit task 123 title "..."       # 编辑 Task
+edit 1 content "..."            # 兼容旧行为 (Proposal edit)
+```
+
+### Proposal 编号一致性
+
+`proposals`、`ls proposals`、`accept`、`reject`、`edit proposal`、`apply` 共享同一 session-local 编号映射。不存在的编号提示先运行 `proposals` 或 `ls proposals`。
+
+## Not In V1.5.1
+
+Human Shell v1.5.1 不做复杂 TUI、全屏表格编辑、鼠标交互、文件系统 metadata 扫描、完整成果系统、Anki、项目树拖拽、移动块、删除块、合并块或重排、`edit task content` 与 `edit task title` 的差异化行为（本轮等价）。
