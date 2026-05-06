@@ -204,6 +204,8 @@ class LogseqAdapter:
             if block.is_pure_reference:
                 self._extract_journal_exposure(block, parsed, result)
                 continue
+            if self._under_resource_context(block):
+                continue
 
             self._extract_task(block, parsed, result, page_project_source_id)
             self._extract_idea(block, parsed, result, page_project_source_id)
@@ -242,7 +244,7 @@ class LogseqAdapter:
         for child in block.descendants():
             if child.properties.get("__property_block__") == "true":
                 continue
-            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), role_for_child(child.raw)))
+            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), self._role_for_child(child)))
         if page_project_source_id:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.9, {"rule": "same_project_page"}))
         else:
@@ -280,7 +282,7 @@ class LogseqAdapter:
         for child in block.descendants():
             if child.properties.get("__property_block__") == "true":
                 continue
-            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), role_for_child(child.raw)))
+            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), self._role_for_child(child)))
 
         parent_task = self._nearest_task_ancestor(block)
         if parent_task:
@@ -323,7 +325,7 @@ class LogseqAdapter:
         for child in block.descendants():
             if child.properties.get("__property_block__") == "true":
                 continue
-            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), role_for_child(child.raw)))
+            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), self._role_for_child(child)))
         if page_project_source_id:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.9, {"rule": "mini_project_under_project_page"}))
         else:
@@ -353,6 +355,17 @@ class LogseqAdapter:
             if ancestor.task and not ancestor.is_pure_reference and not ancestor.is_embed_reference:
                 return ancestor
         return None
+
+    def _under_resource_context(self, block: LogseqBlock) -> bool:
+        for ancestor in block.ancestors():
+            if semantic_marker(ancestor.raw) == "资源" or is_reference_record(ancestor.raw):
+                return True
+        return False
+
+    def _role_for_child(self, block: LogseqBlock) -> str:
+        if self._under_resource_context(block):
+            return "resource"
+        return role_for_child(block.raw)
 
     def _is_private(self, block: LogseqBlock) -> bool:
         text = block.raw.lower()

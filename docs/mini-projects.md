@@ -21,6 +21,8 @@ PARA/Project，但它不等同于正式 Project。
 **[小任务]**
 ```
 
+Round 3.5 同时识别非加粗 `[小任务]`。推荐写法仍是 `**[小任务]**`。
+
 示例：
 
 ```text
@@ -70,3 +72,25 @@ tm agent project-tree 项目-韩国旅行 --format json
 - 自动拆分行动项。
 - 自动创建正式 Project。
 - 完整成果系统。
+
+## Round 3.5 Quality Notes
+
+小任务质量报告：
+
+```bash
+tm report mini-project-quality
+```
+
+报告覆盖：
+
+- project page / journal 来源分布；
+- 是否有 child action items；
+- 是否包含 resource / result marker；
+- 空小任务或默认标题；
+- duplicate mini projects；
+- 是否被误提升为正式 Project；
+- source/location mismatch。
+
+`[资源]` 或 `#reference` 语境下的内容不会进入 Action Item。`[想法]` 仍作为 Idea 语义保留，不会因为出现在项目页里就被强制转成 Task 或 Mini Project。
+
+Suspicious mini project 只进入报告，不自动重构项目页。典型 suspicious cases 包括无子块、标题为空、重复标题和 source/location 不一致。

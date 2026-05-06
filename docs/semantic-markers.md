@@ -19,6 +19,9 @@ Logseq adapter 只识别明确的行首语义标记，不把 `[[想法]]` 或普
 
 内部 metadata 使用无括号的归一化值，例如 `semantic_marker: "AI注"` 。
 
+Round 3.5 同时支持非加粗行首 marker，例如 `[目标]`、`[小任务]`、`[资源]`。推荐格式仍是加粗形式，
+因为它更适合人工扫描。
+
 ## Tags
 
 行末标签会写入 `semantic_tags` ：
@@ -47,4 +50,5 @@ Logseq adapter 只识别明确的行首语义标记，不把 `[[想法]]` 或普
 - `[[想法]]` 是页面链接，不是 Idea marker。
 - 普通文本中的“想法”不是 Idea marker。
 - Reference / Resource 是资源，不应直接当成 Action Item。
+- 资源 marker 或 `#reference` 语境下的子块不会进入 Action Item。
 - Annotation 是笔记或说明，Proposal 是可审核、可应用、可回滚的结构化变更。

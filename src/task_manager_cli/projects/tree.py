@@ -145,6 +145,7 @@ class ProjectTreeService:
         node_type = self._node_type(block, marker)
         title = self._title(block, marker)
         obj = source_map.get(source_item_id)
+        status = block.task[0].lower() if block.task and node_type == "action_item" else (obj.get("status") if obj else None)
         metadata: Dict[str, Any] = {}
         if detail:
             metadata = {
@@ -161,7 +162,7 @@ class ProjectTreeService:
             "depth": block.indent,
             "object_id": obj.get("id") if obj else None,
             "object_type": obj.get("object_type") if obj else None,
-            "status": block.task[0].lower() if block.task else (obj.get("status") if obj else None),
+            "status": status,
             "location": {
                 "source_type": "logseq",
                 "source_item_id": source_item_id,
@@ -176,6 +177,8 @@ class ProjectTreeService:
         }
 
     def _node_type(self, block: LogseqBlock, marker: Optional[str]) -> str:
+        if self._under_resource_context(block):
+            return "resource"
         if block.task:
             return "action_item"
         if marker in NODE_TYPE_BY_MARKER:
@@ -185,6 +188,12 @@ class ProjectTreeService:
         if block.idea_title:
             return "idea"
         return "unknown"
+
+    def _under_resource_context(self, block: LogseqBlock) -> bool:
+        for ancestor in block.ancestors():
+            if semantic_marker(ancestor.raw) == "资源" or is_reference_record(ancestor.raw):
+                return True
+        return False
 
     def _title(self, block: LogseqBlock, marker: Optional[str]) -> str:
         if block.task:
@@ -241,4 +250,3 @@ class ProjectTreeService:
 
 def project_tree_json(tree: Dict[str, Any]) -> str:
     return json.dumps(tree, ensure_ascii=False, indent=2, sort_keys=True)
-

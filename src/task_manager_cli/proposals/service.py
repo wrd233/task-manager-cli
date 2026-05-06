@@ -80,6 +80,9 @@ class ProposalService:
         if target_record_ref and target_record_id is None:
             raise NotFoundError(f"Target record not found: {target_record_ref}")
         risk = risk or classify_risk(proposal_type, payload)
+        duplicate_id = self._active_duplicate_relation_proposal(proposal_type, target_object_id, payload)
+        if duplicate_id is not None:
+            return duplicate_id
         cur = self.conn.execute(
             """
             INSERT INTO proposals(
@@ -537,6 +540,26 @@ class ProposalService:
         data = dict(row)
         data["details"] = json.loads(data.pop("details_json") or "{}")
         return data
+
+    def _active_duplicate_relation_proposal(self, proposal_type: str, target_object_id: Optional[int], payload: Dict[str, Any]) -> Optional[int]:
+        if proposal_type not in RELATION_PROPOSAL_TYPES or target_object_id is None:
+            return None
+        target_project_id = payload.get("target_project_id") or payload.get("to_object_id") or payload.get("target_object_id")
+        target_node_id = payload.get("target_project_node_id")
+        rows = self.conn.execute(
+            """
+            SELECT id, payload_json FROM proposals
+            WHERE proposal_type=? AND target_object_id=? AND status IN ('suggested', 'accepted', 'edited')
+            ORDER BY id
+            """,
+            (proposal_type, target_object_id),
+        ).fetchall()
+        for row in rows:
+            existing = json.loads(row["payload_json"] or "{}")
+            existing_project_id = existing.get("target_project_id") or existing.get("to_object_id") or existing.get("target_object_id")
+            if str(existing_project_id) == str(target_project_id) and existing.get("target_project_node_id") == target_node_id:
+                return int(row["id"])
+        return None
 
 
 def normalize_marker(marker: str) -> str:

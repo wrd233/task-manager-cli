@@ -64,3 +64,8 @@ item 的 proposal 数量；要求 reason 简短；降低高风险建议倾向；
 
 只有当 parse error 低、建议不过度、reference / idea / waiting 判断稳定，并且 rollback
 验证可靠时，才建议进入 Round 3。
+
+Round 3.5 增加项目纳管质量检查：真实 provider 对 `clarify project` 的建议应优先落在
+`link_to_project` / `link_to_project_node` / `link_idea_to_project` / `link_resource_to_project`。
+低置信项目纳管候选不应直接创建 Proposal；Resource / Reference 不应进入 Action Item；Idea 不应被强制转 Task。
+先用 `tm report membership-quality` 和 `tm clarify eval <review-id>` 查看类型分布与风险分布，再决定是否扩大真实 provider 样本。

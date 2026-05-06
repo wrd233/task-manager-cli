@@ -128,3 +128,36 @@ response schema 和 payload size guard。
 
 Round 3 增加 project context、project membership proposals 和 `promote_to_mini_project` 建议，但仍不做完整小任务系统、
 完整项目树写回或复杂 TUI。
+
+## Round 3.5 Project Validation
+
+`tm clarify project <project>` 在大样本临时 graph 上用于验证项目上下文 payload 和 provider 纳管建议质量。
+
+项目 payload 默认只发送短 project tree summary：
+
+- project id / title / source；
+- node id；
+- node type；
+- title 摘要；
+- depth；
+- line_start；
+- truncated 标记。
+
+默认不发送完整项目页原文、整页 Markdown、全量 linked records 或大段子树正文。payload 超过限制时会截断 child notes / answer，并设置 `payload_truncated`。
+
+Provider 项目纳管建议限制：
+
+- provider 只能生成 `suggested` Proposal；
+- 低于 0.6 confidence 的项目纳管候选不直接创建 Proposal；
+- Resource / Reference 不应建议为 Action；
+- Idea 不应被强制转为 Task；
+- 高风险项目树重写、删除、合并、移动和批量重排只允许作为高风险边界被识别，不会自动 apply；
+- 真实 provider 应先用 `dry-run` 查看 payload，再少量验证。
+
+质量检查：
+
+```bash
+tm clarify project <project> --provider dry-run --format json
+tm clarify project <project> --provider mock
+tm clarify eval <review-id>
+```

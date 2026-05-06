@@ -84,6 +84,9 @@ tm proposal apply <proposal-id> --yes
 
 rollback 仍使用第 1 轮的备份恢复机制。
 
+Round 3.5 修复了同一文件连续多次 append-only 写回时的备份碰撞风险。每次 apply 都会生成唯一备份文件；
+rollback 按当前 Proposal 的 `applied_record.backup_path` 恢复，因此可以先回滚第二次写回，再回滚第一次写回。
+
 ## Round 3 Project Writeback
 
 项目树默认只读。项目纳管 Proposal 默认只写内部 relation，不移动原始 Logseq 块。

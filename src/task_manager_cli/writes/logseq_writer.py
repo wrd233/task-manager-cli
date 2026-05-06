@@ -128,9 +128,13 @@ class LogseqWriter:
     def backup(self, path: Path, backup_dir: Path) -> Path:
         backup_dir = Path(backup_dir).expanduser()
         backup_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         safe_name = str(path).strip("/").replace("/", "__")
         backup_path = backup_dir / f"{stamp}__{safe_name}"
+        suffix = 1
+        while backup_path.exists():
+            backup_path = backup_dir / f"{stamp}-{suffix}__{safe_name}"
+            suffix += 1
         shutil.copy2(path, backup_path)
         return backup_path
 

@@ -39,6 +39,11 @@ class ProjectMembershipService:
             raise TaskManagerError("Reference objects cannot be proposed as action items.")
         evidence = self.evidence(obj, project, project_node_id=project_node_id)
         proposal_confidence = confidence if confidence is not None else evidence["confidence"]
+        duplicate_id = self._active_duplicate_proposal(obj["id"], project["id"], project_node_id, ptype)
+        if duplicate_id is not None:
+            return duplicate_id
+        if self._applied_membership_relation_exists(obj["id"], project["id"], project_node_id):
+            raise TaskManagerError("A project membership relation from an applied proposal already exists.")
         payload = {
             "relation_type": RelationType.BELONGS_TO.value,
             "target_project_id": project["id"],
@@ -135,3 +140,38 @@ class ProjectMembershipService:
             return ProposalType.LINK_RESOURCE_TO_PROJECT.value
         return ProposalType.LINK_TO_PROJECT.value
 
+    def _active_duplicate_proposal(self, object_id: int, project_id: int, project_node_id: Optional[str], proposal_type: str) -> Optional[int]:
+        rows = self.conn.execute(
+            """
+            SELECT id, payload_json FROM proposals
+            WHERE target_object_id=?
+              AND proposal_type=?
+              AND status IN ('suggested', 'accepted', 'edited')
+            ORDER BY id
+            """,
+            (object_id, proposal_type),
+        ).fetchall()
+        import json
+
+        for row in rows:
+            payload = json.loads(row["payload_json"] or "{}")
+            if int(payload.get("target_project_id") or -1) == int(project_id) and payload.get("target_project_node_id") == project_node_id:
+                return int(row["id"])
+        return None
+
+    def _applied_membership_relation_exists(self, object_id: int, project_id: int, project_node_id: Optional[str]) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT metadata_json FROM relations
+            WHERE from_object_id=? AND to_object_id=? AND relation_type='belongs_to'
+            """,
+            (object_id, project_id),
+        ).fetchone()
+        if not row:
+            return False
+        import json
+
+        metadata = json.loads(row["metadata_json"] or "{}")
+        if not metadata.get("proposal_id"):
+            return False
+        return metadata.get("target_project_node_id") == project_node_id

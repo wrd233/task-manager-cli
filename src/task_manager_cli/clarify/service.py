@@ -331,6 +331,15 @@ class ClarifyService:
                 raise ProviderResponseError(f"Unsupported normalized proposal type: {proposal_type}")
             if candidate.get("risk") and candidate["risk"] not in ALLOWED_RISKS:
                 raise ProviderResponseError(f"Unsupported normalized proposal risk: {candidate['risk']}")
+            confidence = candidate.get("confidence", result.confidence)
+            if proposal_type in {
+                ProposalType.LINK_TO_PROJECT.value,
+                ProposalType.LINK_TO_PROJECT_NODE.value,
+                ProposalType.LINK_IDEA_TO_PROJECT.value,
+                ProposalType.LINK_RESOURCE_TO_PROJECT.value,
+                ProposalType.ATTACH_TO_MINI_PROJECT.value,
+            } and isinstance(confidence, (int, float)) and float(confidence) < 0.6:
+                continue
             target = candidate.get("target") or {}
             if target.get("object_id") and str(target["object_id"]) != str(object_id):
                 raise ProviderResponseError("Provider candidate target object_id does not match current item.")
@@ -354,7 +363,7 @@ class ClarifyService:
                 source="provider",
                 rationale=candidate.get("reasoning_summary") or result.reasoning_summary,
                 metadata={
-                    "provider_confidence": candidate.get("confidence", result.confidence),
+                    "provider_confidence": confidence,
                     "provider_summary": result.summary,
                     "needs_user_confirmation": candidate.get("needs_user_confirmation", result.needs_user_confirmation),
                     "provider_target": target,

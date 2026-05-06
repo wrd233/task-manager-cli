@@ -55,6 +55,20 @@ Round 2.5 仍建议只在临时测试 graph 上验证真实 provider。
 
 Round 3 仍不做完整项目树重构、不移动块、不删除块、不合并块、不自动 apply 项目纳管建议。
 
+## Round 3.5 新增能力
+
+- 大样本质量报告： `tm report project-tree-quality` 、 `tm report mini-project-quality` 、
+`tm report membership-quality` 。
+- Project 命令别名： `tm project tree-quality` 、 `tm project membership-quality` 。
+- Marker 变体支持：项目树和小任务同时识别 `**[小任务]**` 与 `[小任务]` 等非加粗形式；推荐格式仍为加粗。
+- Resource / Reference 边界加固：资源语境下的子块不进入 Action Item。
+- 项目纳管更保守：低置信候选不直接生成可 apply Proposal；active duplicate Proposal 被抑制；已 applied relation 不重复建议。
+- Clarify project payload 验证：默认只发送短 project tree summary，不发送完整项目页原文。
+- Append-only 写回加固：连续多次写回同一文件会生成唯一备份，支持按 Proposal rollback。
+
+Round 3.5 仍不实现 Human Shell / `tm shell` / `ta`，也不实现交互式 `pwd / cd / ls / tree`
+或短命令工作台。Human Shell 留待后续单独轮次。
+
 ## 安装
 
 ```bash
@@ -144,6 +158,9 @@ tm agent ideas --limit 20 --format markdown
 tm report active-projects
 tm report recent-unresolved-tasks --days 14
 tm report extraction-quality
+tm report project-tree-quality
+tm report mini-project-quality
+tm report membership-quality
 ```
 
 批注只写入 CLI 内部数据库：
@@ -205,6 +222,8 @@ tm proposal rollback 1
 tm project tree 项目-韩国旅行
 tm project tree 项目-韩国旅行 --detail
 tm project tree 项目-韩国旅行 --format json
+tm project tree-quality
+tm project membership-quality
 tm project propose-membership --object 12 --project 项目-韩国旅行
 tm project propose-membership --object 12 --project 项目-韩国旅行 --node-id block:abc
 tm project promote-mini 12 --reason "需要多个行动项"
@@ -214,6 +233,19 @@ tm proposal rollback 1
 ```
 
 纳管 apply 默认只更新内部 relation，不移动 Logseq 原块。
+
+Round 3.5 建议先在临时 Logseq graph 上验证：
+
+```bash
+tm sync logseq --graph /tmp/tm-round35/graph
+tm report project-tree-quality
+tm report mini-project-quality
+tm report membership-quality
+tm clarify project 项目-韩国旅行 --provider dry-run
+```
+
+进入 Round 4 前建议确认：三个 quality report 无不可解释异常、source/location mismatch 为 0 或有说明、
+低置信纳管候选没有直接 Proposal、append-only preview/apply/resync/rollback 在临时 graph 通过。
 
 Review Session：
 

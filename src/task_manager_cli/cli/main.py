@@ -15,6 +15,7 @@ from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.projects.membership import ProjectMembershipService
+from task_manager_cli.projects.quality import ProjectQualityService
 from task_manager_cli.projects.tree import ProjectTreeService, project_tree_json
 from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.providers.service import ProviderService
@@ -75,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         p = sync_sub.add_parser(name, help=f"Sync {name}.")
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--recent-journals", type=int, help="Only include the newest N journal files.")
+        p.add_argument("--graph", help="Temporary Logseq graph path for this sync run.")
         p.set_defaults(handler=cmd_sync_logseq if name == "logseq" else cmd_sync_all)
     p = sync_sub.add_parser("runs", help="List sync runs.")
     p.add_argument("--limit", type=int, default=20)
@@ -187,6 +189,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = report_sub.add_parser("extraction-quality", help="Show extraction quality diagnostics.")
     p.add_argument("--format", choices=["json", "markdown"], default="markdown")
     p.set_defaults(handler=cmd_report_extraction_quality)
+    p = report_sub.add_parser("project-tree-quality", help="Show project tree quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_project_tree_quality)
+    p = report_sub.add_parser("mini-project-quality", help="Show mini project quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_mini_project_quality)
+    p = report_sub.add_parser("membership-quality", help="Show project membership quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_membership_quality)
 
     view = sub.add_parser("view", help="Short human-readable views.")
     view_sub = view.add_subparsers(dest="view_command")
@@ -222,6 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--detail", action="store_true")
     p.add_argument("--format", choices=["markdown", "json"], default="markdown")
     p.set_defaults(handler=cmd_project_tree)
+    p = project_sub.add_parser("tree-quality", help="Show project tree quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_project_tree_quality)
+    p = project_sub.add_parser("membership-quality", help="Show project membership quality diagnostics.")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_membership_quality)
     p = project_sub.add_parser("propose-membership", help="Create a project membership proposal for an object.")
     p.add_argument("--object", required=True, help="Action item, idea, resource, or mini project id/source/title.")
     p.add_argument("--project", required=True, help="Target project id/source/title.")
@@ -536,6 +553,8 @@ def cmd_doctor(args) -> str:
 
 def cmd_sync_logseq(args) -> str:
     settings = _settings()
+    if getattr(args, "graph", None):
+        settings.logseq_graph_path = Path(args.graph).expanduser()
     conn = _conn(settings)
     result = SyncService(conn, settings).sync_logseq(dry_run=args.dry_run, recent_journals=args.recent_journals)
     return to_json(result)
@@ -543,6 +562,8 @@ def cmd_sync_logseq(args) -> str:
 
 def cmd_sync_all(args) -> str:
     settings = _settings()
+    if getattr(args, "graph", None):
+        settings.logseq_graph_path = Path(args.graph).expanduser()
     conn = _conn(settings)
     result = SyncService(conn, settings).sync_all(dry_run=args.dry_run, recent_journals=args.recent_journals)
     return to_json(result)
@@ -710,6 +731,29 @@ def cmd_report_recent_unresolved_tasks(args) -> str:
 def cmd_report_extraction_quality(args) -> str:
     service = _agent_view_service()
     data = service.extraction_quality_report()
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def _project_quality_service():
+    settings = _settings()
+    return ProjectQualityService(_conn(settings), settings)
+
+
+def cmd_report_project_tree_quality(args) -> str:
+    service = _project_quality_service()
+    data = service.project_tree_quality()
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_report_mini_project_quality(args) -> str:
+    service = _project_quality_service()
+    data = service.mini_project_quality()
+    return to_json(data) if args.format == "json" else service.markdown(data)
+
+
+def cmd_report_membership_quality(args) -> str:
+    service = _project_quality_service()
+    data = service.membership_quality()
     return to_json(data) if args.format == "json" else service.markdown(data)
 
 

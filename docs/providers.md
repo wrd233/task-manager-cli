@@ -155,6 +155,9 @@ Provider 可以建议项目纳管或小任务升级：
 Provider 不能建议移动、删除、合并、大规模重排或重写项目页。若不确定，应返回
 `questions_for_user`，而不是强行生成 Proposal。
 
+Round 3.5 加强项目纳管边界：项目纳管候选的 confidence 低于 0.6 时不会创建 Proposal，只保留在质量报告或后续澄清里。
+Resource / Reference 不应返回 Action 类建议，Idea 不应被强制转换成 Task。
+
 ## Errors / Retry
 
 Provider 失败会写入 review item clarify metadata。覆盖 timeout、network error、401 / 403 / 429 /
