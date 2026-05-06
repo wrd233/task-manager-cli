@@ -192,3 +192,27 @@ provider deepseek
 
 `provider off` 只记录问题和回答；`dry-run` 只展示 payload preview；`mock` / 真实 provider 仍只能生成 suggested Proposal。
 Human Shell 不允许 Provider 直接写 Logseq 或直接 apply。
+
+## Human Shell Resume
+
+Human Shell v1.5 会在 session context 中记住最近的 shell clarify review，并提供恢复命令：
+
+```text
+clarify
+clarify status
+clarify resume
+clarify retry
+clarify eval
+clarify cancel
+```
+
+行为：
+
+- `clarify`：在当前路径创建或继续 review；
+- `clarify status`：显示 review id、total、answered、skipped、failed、generated proposals；
+- `clarify resume`：继续 pending / asked / answered / failed item；
+- `clarify retry`：重试 failed item，使用当前 shell provider；
+- `clarify eval`：显示当前 review 的质量摘要；
+- `clarify cancel`：清空当前 shell review 指针，不删除 Review Session。
+
+Provider 仍由 shell 内 `provider off|dry-run|mock|deepseek` 控制。恢复流程不会让 provider 直接 apply，也不会绕过 Proposal 审核。

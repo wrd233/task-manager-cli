@@ -132,3 +132,37 @@ Human Shell 使用合适位置 resolver：
 
 Direct Action 仍只允许 append-only 或 task marker 修改，不移动、删除、合并、重排项目页。每次直接写回都会记录内存 operation history，
 并保存 backup 或 inverse 信息；`undo` 至少可撤销最近一次写回。
+
+## Human Shell Preview And Undo List
+
+Human Shell v1.5 在 Direct Action 前提供短预览：
+
+```text
+preview on
+where todo "查询 Kakao T 支付支持"
+todo "查询 Kakao T 支付支持" --preview
+```
+
+预览展示：
+
+- graph；
+- relative file；
+- target context；
+- operation；
+- content；
+- short diff。
+
+`where` 和 `--preview` 不修改文件。`preview on` 后真实写回前需要确认。`preview off` 仅在目标明确时直接写；目标或位置模糊时仍会展示候选，不会静默 fallback 到错误位置。
+
+Operation history 支持查看和指定撤销：
+
+```text
+history
+history --detail
+undo
+undo 3
+```
+
+可撤销的 shell operation 包括 append TODO / idea / mini / resource、append note / ainote / result / noresult、task marker change，以及 shell 触发的 Proposal apply rollback。撤销后该 operation 标记为 `undone`，重复撤销会被拒绝。
+
+连续多次写回同一文件时，每个 Direct Action 都保留自己的备份或 inverse 信息。撤销指定操作会恢复该操作记录中的文件快照；如果后续操作依赖前序内容，shell 会提示风险或失败原因，而不是假装成功。

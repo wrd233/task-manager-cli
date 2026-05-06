@@ -559,7 +559,8 @@ def cmd_shell(args) -> None:
     settings = _settings()
     conn = _conn(settings)
     shell = HumanShellService(conn, settings)
-    print("Human Shell v1. Type `help` for commands, `exit` to quit.")
+    _install_shell_readline(shell)
+    print("Human Shell v1.5. Type `help` for commands, `exit` to quit.")
     while True:
         try:
             line = input(shell.prompt())
@@ -573,6 +574,38 @@ def cmd_shell(args) -> None:
             print(result)
     conn.commit()
     return None
+
+
+def _install_shell_readline(shell: HumanShellService) -> None:
+    try:
+        import readline
+    except Exception:
+        return
+
+    matches = []
+
+    def completer(text, state):
+        nonlocal matches
+        if state == 0:
+            try:
+                buffer = readline.get_line_buffer()
+                result = shell.completer.complete_line(buffer, readline.get_endidx())
+                matches = [candidate + " " for candidate in result.candidates]
+            except Exception:
+                matches = []
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    try:
+        readline.set_completer(completer)
+        if "libedit" in getattr(readline, "__doc__", ""):
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+    except Exception:
+        return
 
 
 def cmd_sync_logseq(args) -> str:

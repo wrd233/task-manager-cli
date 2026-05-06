@@ -159,3 +159,26 @@ apply accepted
 
 `proposals` 会显示 session-local 编号并映射到底层 Proposal id。高风险 Proposal 不允许批量 apply。
 Shell 中 `undo` 对 shell 触发的 Proposal apply 会调用底层 rollback。
+
+## Human Shell Proposal Editing
+
+Human Shell v1.5 支持在 REPL 内编辑常见字段：
+
+```text
+proposals
+edit 1 content "新的内容"
+edit 1 reason "新的理由"
+edit 1 risk low
+edit 1 marker AI注
+supersede 1 2
+```
+
+规则：
+
+- `1` 是 shell session-local 编号，来自最近一次 `proposals` 列表；
+- 编辑会调用底层 Proposal edit，并保留 `proposal_events` 历史；
+- 已 applied / rolled_back 的 Proposal 不允许静默编辑；
+- high risk 不参与批量 apply；
+- `supersede` 会让旧 Proposal 进入 `superseded`，新 Proposal 继续独立审核。
+
+Tab completion 会为 `accept` / `reject` / `preview` / `apply` / `edit` / `supersede` 展示当前 session-local Proposal 编号。Completion 只是只读候选，不会 accept、preview、apply 或写 Logseq。
