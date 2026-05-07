@@ -69,6 +69,16 @@ Human-facing `tm view ...` 是另一层：它不面向 Agent，不输出 JSON，
 
 默认启用 redaction 和 annotations。
 
+新增只读 project node evidence：
+
+```bash
+tm agent project-node <node-id> --raw --context
+tm agent project-node <node-id> --format json
+```
+
+该命令输出 node metadata、ancestor context、raw subtree、source location 和 project id/name，不写回
+Logseq。`tm agent today-context` 表示今日事实；`tm agent dashboard-context` 预留为全局态势接口。
+
 ## 写入批注
 
 ```bash

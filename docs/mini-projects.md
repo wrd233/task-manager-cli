@@ -59,6 +59,9 @@ show
 输出包含 mini id、所属项目、source location、简洁 context，以及当前 mini block 下的全部子块。`tree`
 在 project node / mini 语境中仍用于查看结构化子节点；如果只想看内容和证据，应使用 `show`。
 
+Mini `show` 现在与任意 project semantic node 的 Logseq-like `show` 共用 raw subtree renderer。TODO / DOING /
+WAITING / DONE 子块在人类终端视图中会使用偏深色状态渲染；`NO_COLOR=1` 或非 TTY 时输出纯文本。
+
 ## Proposals
 
 本轮支持与小任务相关的 Proposal 类型：

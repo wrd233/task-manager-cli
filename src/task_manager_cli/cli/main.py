@@ -142,6 +142,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--detail", action="store_true")
     p.add_argument("--format", choices=["json", "markdown"], default="json")
     p.set_defaults(handler=cmd_agent_project_tree)
+    p = agent_sub.add_parser("project-node", help="Export readonly raw evidence for one project semantic node.")
+    p.add_argument("node")
+    p.add_argument("--project", help="Optional project id or title; otherwise scan projects for the node id.")
+    p.add_argument("--raw", dest="raw", action="store_true", default=True, help="Include raw subtree evidence. Enabled by default.")
+    p.add_argument("--no-raw", dest="raw", action="store_false")
+    p.add_argument("--context", dest="context", action="store_true", default=True, help="Include ancestor context. Enabled by default.")
+    p.add_argument("--no-context", dest="context", action="store_false")
+    p.add_argument("--detail", action="store_true")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_agent_project_node)
     p = agent_sub.add_parser("inbox-context", help="Export idea inbox context for external agent triage.")
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--limit", type=int, default=80)
@@ -694,6 +704,41 @@ def cmd_agent_project_tree(args) -> str:
     service = ProjectTreeService(conn, settings)
     data = service.agent_view(args.project, detail=args.detail)
     return project_tree_json(data) if args.format == "json" else service.render_markdown(data, detail=args.detail)
+
+
+def cmd_agent_project_node(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectTreeService(conn, settings)
+    data = service.project_node_evidence(args.node, project_ref=args.project, detail=args.detail, color=False)
+    if not args.raw:
+        data = dict(data)
+        data.pop("raw_subtree", None)
+    if not args.context:
+        data = dict(data)
+        data.pop("ancestor_context", None)
+    return project_tree_json(data) if args.format == "json" else _project_node_markdown(data)
+
+
+def _project_node_markdown(data: Dict[str, Any]) -> str:
+    project = data["project"]
+    node = data["node"]
+    loc = node.get("location") or {}
+    lines = [
+        f"# Project Node: {node.get('title')}",
+        "",
+        f"- project: {project.get('title')} (#{project.get('id')})",
+        f"- node_id: `{node.get('id')}`",
+        f"- type: `{node.get('node_type')}` / {node.get('label')}",
+        f"- object_id: `{node.get('object_id')}`",
+        f"- source: `{loc.get('file_path') or project.get('file_path')}:{loc.get('line_start') or ''}`",
+        "- readonly: true",
+    ]
+    if "ancestor_context" in data:
+        lines.extend(["", "## Ancestor Context", "", "```text", data.get("ancestor_context") or "(root)", "```"])
+    if "raw_subtree" in data:
+        lines.extend(["", "## Raw Subtree", "", "```text", data.get("raw_subtree") or "", "```"])
+    return "\n".join(lines)
 
 
 def cmd_agent_inbox_context(args) -> str:

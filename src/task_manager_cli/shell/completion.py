@@ -13,11 +13,11 @@ COMMANDS = [
     "help", "exit", "quit",
 ]
 
-ROOT_PATHS = ["/today", "/inbox", "/waiting", "/someday", "/ideas", "/projects", "/mini", "/reviews", "/proposals"]
+ROOT_PATHS = ["/today", "/dashboard", "/inbox", "/waiting", "/someday", "/ideas", "/projects", "/mini", "/reviews", "/proposals"]
 PROVIDERS = ["off", "dry-run", "mock", "deepseek", "openai-compatible", "remote"]
 QUALITY = ["project-tree", "mini", "membership", "clarify", "all"]
 ON_OFF = ["on", "off"]
-LS_FILTERS = ["tasks", "todo", "doing", "waiting", "ideas", "resources", "mini", "nodes", "proposals", "all"]
+LS_FILTERS = ["journal", "tasks", "todo", "doing", "waiting", "done", "exposed", "ideas", "resources", "results", "projects", "active", "mini", "nodes", "proposals", "reviews", "all"]
 EDIT_SUBCOMMANDS = ["proposal", "task"]
 TASK_FIELDS = ["title", "content", "status"]
 TASK_STATUSES = ["todo", "doing", "waiting", "done"]

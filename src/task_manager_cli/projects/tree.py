@@ -1,6 +1,4 @@
 import json
-import os
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +11,7 @@ from task_manager_cli.adapters.logseq.parser import LogseqBlock, parse_logseq_fi
 from task_manager_cli.config.settings import Settings
 from task_manager_cli.core.enums import ObjectType
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
+from task_manager_cli.output.colors import SEMANTIC_MARKER_COLOR, STATUS_COLORS, color_status, color_task_markers, colorize, use_color
 from task_manager_cli.storage.repositories import Repository
 
 
@@ -53,14 +52,6 @@ LABEL_BY_NODE_TYPE = {
     "ai_annotation": "AI注",
     "needs_clarify": "待澄清",
     "action_item": "行动",
-}
-
-
-STATUS_COLOR = {
-    "todo": "33",
-    "doing": "36",
-    "waiting": "35",
-    "done": "32",
 }
 
 
@@ -154,6 +145,42 @@ class ProjectTreeService:
         }
         return tree
 
+    def project_node_evidence(
+        self,
+        node_ref: str,
+        *,
+        project_ref: Optional[str] = None,
+        detail: bool = False,
+        color: Optional[bool] = False,
+    ) -> Dict[str, Any]:
+        tree = self.build(project_ref, detail=True) if project_ref else self._find_tree_for_node(node_ref)
+        node = self.find_node(tree.get("tree", []), node_ref)
+        if not node:
+            raise NotFoundError(f"Project node not found: {node_ref}")
+        block = self.find_block(str(tree["project"]["id"]), node["id"])
+        if not block:
+            raise NotFoundError(f"Project node block not found: {node_ref}")
+        project = tree["project"]
+        label = LABEL_BY_NODE_TYPE.get(node.get("node_type"), node.get("node_type"))
+        return {
+            "view": "project-node",
+            "readonly": True,
+            "project": project,
+            "node": {
+                "id": node["id"],
+                "node_type": node.get("node_type"),
+                "label": label,
+                "title": node.get("title"),
+                "object_id": node.get("object_id"),
+                "object_type": node.get("object_type"),
+                "status": node.get("status"),
+                "location": node.get("location"),
+            },
+            "ancestor_context": self.render_block_context(block, color=color),
+            "raw_subtree": self.render_raw_subtree(block, detail=detail, color=color),
+            "omitted": ["writeback", "automatic restructure", "block moves"],
+        }
+
     def summary_for_payload(self, project_ref: Optional[str], max_nodes: int = 24) -> Optional[Dict[str, Any]]:
         if not project_ref:
             return None
@@ -243,12 +270,11 @@ class ProjectTreeService:
         label = LABEL_BY_NODE_TYPE.get(node["node_type"], node["node_type"])
         label_text = f"[{label}]"
         if color:
-            label_text = f"\033[1;33m{label_text}\033[0m"
+            label_text = colorize(label_text, SEMANTIC_MARKER_COLOR, color)
         status = ""
-        if node.get("status") and node["status"].lower() in STATUS_COLOR:
+        if node.get("status") and node["status"].lower() in STATUS_COLORS:
             status = node["status"].upper()
-            if color:
-                status = f"\033[{STATUS_COLOR[node['status'].lower()]}m{status}\033[0m"
+            status = color_status(status, color)
             status = f"{status} "
         title = self._truncate(node["title"])
         suffix = ""
@@ -286,7 +312,7 @@ class ProjectTreeService:
             prefix = f"[{marker}] " if marker else ""
             label = prefix
             if marker and self._use_color(color):
-                label = f"\033[1;33m[{marker}]\033[0m "
+                label = f"{colorize(f'[{marker}]', SEMANTIC_MARKER_COLOR, True)} "
             lines.append(f"{'  ' * depth}{label}{self._truncate(title, 120)}")
         return "\n".join(lines)
 
@@ -334,7 +360,8 @@ class ProjectTreeService:
         text = self._truncate(block.text, max_title)
         marker = semantic_marker(block.raw)
         if marker and color:
-            text = text.replace(f"[{marker}]", f"\033[1;33m[{marker}]\033[0m", 1)
+            text = text.replace(f"[{marker}]", colorize(f"[{marker}]", SEMANTIC_MARKER_COLOR, True), 1)
+        text = color_task_markers(text, color)
         suffix = f"  (line: {block.line_number})" if detail else ""
         lines.append(f"{'  ' * depth}{text}{suffix}")
         for key, value in block.properties.items():
@@ -387,11 +414,7 @@ class ProjectTreeService:
         return text[: max_chars - 1].rstrip() + "…"
 
     def _use_color(self, color: Optional[bool]) -> bool:
-        if color is not None:
-            return color
-        if os.environ.get("NO_COLOR"):
-            return False
-        return sys.stdout.isatty()
+        return use_color(color)
 
     def _count_nodes(self, nodes: List[Dict[str, Any]]) -> int:
         return sum(1 + self._count_nodes(node.get("children", [])) for node in nodes)
@@ -400,6 +423,16 @@ class ProjectTreeService:
         for node in nodes:
             flat.append(node)
             self._flatten(node.get("children", []), flat)
+
+    def _find_tree_for_node(self, node_ref: str) -> Dict[str, Any]:
+        for project in self.repo.list_objects("project", limit=100000):
+            try:
+                tree = self.build(str(project["id"]), detail=True)
+            except Exception:
+                continue
+            if self.find_node(tree.get("tree", []), node_ref):
+                return tree
+        raise NotFoundError(f"Project node not found: {node_ref}")
 
 
 def project_tree_json(tree: Dict[str, Any]) -> str:

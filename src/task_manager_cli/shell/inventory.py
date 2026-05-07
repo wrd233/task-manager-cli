@@ -1,11 +1,14 @@
 """Context inventory: unified object listing for the Human Shell."""
 
+from datetime import date
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from task_manager_cli.adapters.logseq.extractors import strip_bullet
 from task_manager_cli.projects.tree import ProjectTreeService
 from task_manager_cli.storage.repositories import Repository
 
-ROOTS = {"today", "inbox", "waiting", "someday", "ideas", "projects", "mini", "reviews", "proposals"}
+ROOTS = {"today", "dashboard", "inbox", "waiting", "someday", "ideas", "projects", "mini", "reviews", "proposals"}
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
@@ -38,7 +41,9 @@ def build_inventory(conn, shell_context, repo: Repository, settings) -> dict:
     elif path.startswith("/projects/") and _get_attr(shell_context, 'project_ref'):
         return _inventory_project_context(conn, shell_context, repo, settings)
     elif path == "/today":
-        return _inventory_today(repo)
+        return _inventory_today(repo, settings, _ctx_val(shell_context, "journal_date") or date.today().isoformat())
+    elif path == "/dashboard":
+        return _inventory_dashboard(repo)
     elif path == "/inbox":
         return _inventory_inbox(repo)
     elif path == "/waiting":
@@ -171,7 +176,7 @@ def _inventory_ideas(repo: Repository) -> dict:
 
 # ─── today / inbox / waiting / somedays ───────────────────────────────────────
 
-def _inventory_today(repo: Repository) -> dict:
+def _inventory_today_legacy_global_view(repo: Repository) -> dict:
     tasks = repo.list_objects("task", status=None, limit=MAX_LIMIT)
     task_items = []
     for row in tasks:
@@ -667,3 +672,179 @@ def _add_child_sections(sections: List[dict], children: List[dict], repo: Reposi
         sections.append(_section("resources", "Resources", resources))
     if minis:
         sections.append(_section("mini_projects", "Mini Projects", minis))
+
+
+# ─── today / dashboard v2 overrides ───────────────────────────────────────────
+
+def _inventory_today(repo: Repository, settings, journal_date: str) -> dict:
+    journal_items = _journal_record_items(repo, journal_date)
+    task_items = _objects_on_journal(repo, journal_date, "task")
+    idea_items = _objects_on_journal(repo, journal_date, "idea")
+    exposed_items = _journal_exposed_items(repo, journal_date)
+    result_items = _journal_marker_items(repo, journal_date, "成果", "result")
+    note_items = _journal_marker_items(repo, journal_date, "注", "record")
+
+    sections = []
+    if journal_items:
+        sections.append(_section("journal", f"Journal {journal_date}", journal_items))
+    if task_items:
+        sections.append(_section("actions", "Tasks Today", task_items))
+    if exposed_items:
+        sections.append(_section("exposed", "Exposed Today", exposed_items))
+    if idea_items:
+        sections.append(_section("ideas", "Ideas Today", idea_items))
+    if result_items:
+        sections.append(_section("results", "Results Today", result_items))
+    if note_items:
+        sections.append(_section("notes", "Notes Today", note_items))
+
+    extra = {}
+    if not journal_items:
+        extra["_note"] = f"Today journal not found or empty: {_journal_path(settings, journal_date)}"
+    return {
+        "context": "/today",
+        "project_ref": None, "project_node_id": None, "project_node_title": None, "project_node_path": None,
+        "sections": sections, "overflow": {},
+        **extra,
+    }
+
+
+def _inventory_dashboard(repo: Repository) -> dict:
+    tasks = repo.list_objects("task", status=None, limit=MAX_LIMIT)
+    active_items = []
+    waiting_items = []
+    for row in tasks:
+        if row.get("status") in ("todo", "doing"):
+            active_items.append(_item(row["id"], "task", row["title"], status=row.get("status"), source_location=_source_location(row)))
+        elif row.get("status") == "waiting":
+            waiting_items.append(_item(row["id"], "task", row["title"], status="waiting", source_location=_source_location(row)))
+    projects = repo.list_objects("project", limit=DEFAULT_LIMIT)
+    project_items = [_item(r["id"], "project", r["title"], actionable=False, source_location=_source_location(r)) for r in projects]
+    ideas = repo.list_objects("idea", limit=DEFAULT_LIMIT)
+    idea_items = [_item(r["id"], "idea", r["title"], source_location=_source_location(r)) for r in ideas]
+    proposal_items = _proposal_items(repo, statuses=("suggested", "accepted", "edited"))
+    review_items = _open_review_items(repo)
+
+    sections = []
+    if project_items:
+        sections.append(_section("projects", "Active Projects", project_items))
+    if active_items:
+        sections.append(_section("actions", "Active Tasks", active_items))
+    if waiting_items:
+        sections.append(_section("waiting", "Waiting", waiting_items))
+    if proposal_items:
+        sections.append(_section("proposals", "Pending Proposals", proposal_items))
+    if review_items:
+        sections.append(_section("reviews", "Open Reviews", review_items))
+    if idea_items:
+        sections.append(_section("ideas", "Ideas", idea_items))
+    return {
+        "context": "/dashboard",
+        "project_ref": None, "project_node_id": None, "project_node_title": None, "project_node_path": None,
+        "sections": sections, "overflow": {},
+    }
+
+
+def _journal_path(settings, journal_date: str) -> Optional[Path]:
+    graph = getattr(settings, "logseq_graph_path", None)
+    if not graph:
+        return None
+    return Path(graph) / "journals" / f"{journal_date.replace('-', '_')}.md"
+
+
+def _journal_record_items(repo: Repository, journal_date: str) -> List[dict]:
+    rows = repo.conn.execute(
+        """
+        SELECT r.id, r.raw_text, r.normalized_text, l.page_name, l.journal_date, l.line_start
+        FROM source_records r
+        JOIN locations l ON l.id=r.location_id
+        WHERE l.journal_date=? AND r.record_type='block'
+        ORDER BY l.line_start, r.id
+        LIMIT ?
+        """,
+        (journal_date, MAX_LIMIT),
+    ).fetchall()
+    return [
+        _item(row["id"], "record", strip_bullet(row["raw_text"]), source_location=_source_location(dict(row)), actionable=False)
+        for row in rows
+    ]
+
+
+def _objects_on_journal(repo: Repository, journal_date: str, object_type: str) -> List[dict]:
+    rows = repo.conn.execute(
+        """
+        SELECT o.*, l.file_path, l.page_name, l.journal_date, l.block_uuid, l.line_start
+        FROM objects o
+        LEFT JOIN locations l ON l.id=o.canonical_location_id
+        WHERE o.object_type=? AND l.journal_date=?
+        ORDER BY l.line_start, o.id
+        LIMIT ?
+        """,
+        (object_type, journal_date, MAX_LIMIT),
+    ).fetchall()
+    return [
+        _item(row["id"], object_type, row["title"], status=row["status"], source_location=_source_location(dict(row)))
+        for row in rows
+    ]
+
+
+def _journal_exposed_items(repo: Repository, journal_date: str) -> List[dict]:
+    rows = repo.conn.execute(
+        """
+        SELECT DISTINCT o.*, l.file_path, l.page_name, l.journal_date, l.line_start
+        FROM object_record_links orl
+        JOIN objects o ON o.id=orl.object_id
+        LEFT JOIN locations l ON l.id=o.canonical_location_id
+        JOIN source_records r ON r.id=orl.record_id
+        JOIN locations rl ON rl.id=r.location_id
+        WHERE orl.role='journal_exposure' AND rl.journal_date=?
+        ORDER BY o.id DESC
+        LIMIT ?
+        """,
+        (journal_date, MAX_LIMIT),
+    ).fetchall()
+    return [
+        _item(row["id"], row["object_type"], row["title"], status=row["status"], source_location=_source_location(dict(row)), attribution="journal-ref")
+        for row in rows
+    ]
+
+
+def _journal_marker_items(repo: Repository, journal_date: str, marker: str, item_type: str) -> List[dict]:
+    rows = repo.conn.execute(
+        """
+        SELECT r.id, r.raw_text, r.normalized_text, l.page_name, l.journal_date, l.line_start
+        FROM source_records r
+        JOIN locations l ON l.id=r.location_id
+        WHERE l.journal_date=? AND r.metadata_json LIKE ?
+        ORDER BY l.line_start, r.id
+        LIMIT ?
+        """,
+        (journal_date, f'%"semantic_marker": "{marker}"%', MAX_LIMIT),
+    ).fetchall()
+    return [
+        _item(row["id"], item_type, strip_bullet(row["raw_text"]), source_location=_source_location(dict(row)), actionable=False)
+        for row in rows
+    ]
+
+
+def _proposal_items(repo: Repository, statuses: tuple) -> List[dict]:
+    placeholders = ",".join("?" for _ in statuses)
+    rows = repo.conn.execute(
+        f"SELECT * FROM proposals WHERE status IN ({placeholders}) ORDER BY id DESC LIMIT ?",
+        (*statuses, MAX_LIMIT),
+    ).fetchall()
+    return [
+        _item(row["id"], "proposal", row["title"], actionable=False, proposal_id=row["id"], proposal_type=row["proposal_type"], risk=row["risk"])
+        for row in rows
+    ]
+
+
+def _open_review_items(repo: Repository) -> List[dict]:
+    try:
+        rows = repo.conn.execute(
+            "SELECT * FROM review_sessions WHERE status IN ('open', 'in_progress', 'paused') ORDER BY id DESC LIMIT ?",
+            (MAX_LIMIT,),
+        ).fetchall()
+    except Exception:
+        rows = []
+    return [_item(row["id"], "review", row["title"] or f"Review #{row['id']}", actionable=False) for row in rows]

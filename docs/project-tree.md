@@ -3,7 +3,7 @@
 项目语义树是对 Logseq Project Page 的只读理解。它不是新的项目编辑器，也不是复杂图数据库，也不是
 项目页全文 AST。
 
-`tree` 只展示识别出的结构化项目节点；`show` 负责展示当前对象或节点下面的完整 Logseq 原始子树。
+`tree` 只展示识别出的结构化项目节点；`show` 负责展示当前对象或任意 semantic node 下面的完整 Logseq 原始子树。
 系统不会强迫所有项目都有树，也不会强迫项目 OKR 化。
 
 ## Semantic Tree vs Raw Block Tree
@@ -13,7 +13,7 @@
 - semantic project tree：只包含被 marker 识别出的项目结构节点，用于 `tree`、`ls nodes`、Agent
   project-tree 和项目质量报告。
 - raw block subtree：保留 Logseq 原始块、普通备注、TODO 子块、properties 和缩进，用于
-  `show <node>`、mini context `show`、object context `show` 和后续 Agent 证据视图。
+  `show <node>`、mini context `show`、object context `show` 和 Agent raw evidence 视图。
 
 没有匹配项目结构规则的普通 block 默认不会进入 semantic tree，也不会显示成 `[未识别]`。这些内容仍保留在
 raw block subtree 中，因此不会丢失。
@@ -82,6 +82,7 @@ tm project tree 项目-韩国旅行 --no-color
 tm project tree 项目-韩国旅行 --format json
 tm view project-tree 项目-韩国旅行
 tm agent project-tree 项目-韩国旅行 --format json
+tm agent project-node <node-id> --raw --context
 ```
 
 Brief human view 默认不展示完整 metadata 或 source location。`--detail` 会包含 node id、type、line
@@ -93,6 +94,14 @@ annotation 分类，但默认不塞入完整项目页原文，也不会把 raw s
 
 普通 TODO 默认不进入 `tree`。它会继续作为行动对象出现在 `ls tasks` / inventory 中；如果需要查看某个节点下
 的 TODO 和普通备注，进入该节点后使用 `show`。
+
+`show` 支持所有 semantic project node：目标、价值层、目标层、里程碑、工作流、具体事务、小任务、资源、
+成果、无成果、想法、反思、项目收件箱、待澄清、注、AI注。输出包含节点标题、项目、source location、
+节点类型、简洁 ancestor context 和当前 raw subtree；detail 模式包含 source line / node id / object id。
+重复标题节点依赖 stable node id / source location 定位。
+
+人类可读输出会对 TODO / DOING / WAITING / DONE / CANCELED 使用偏深色 ANSI。`NO_COLOR=1`、非 TTY、
+`--no-color`、`tree plain` 或 `tree no-color` 会输出纯文本；JSON / Agent structured 输出不带 ANSI。
 
 ## Empty Or Simple Projects
 

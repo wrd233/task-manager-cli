@@ -14,6 +14,7 @@ from task_manager_cli.core.enums import ProposalType
 from task_manager_cli.core.errors import ConfigError, NotFoundError, TaskManagerError
 from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.ingest.merger import Merger
+from task_manager_cli.output.colors import color_status, color_task_markers, use_color
 from task_manager_cli.projects.tree import LABEL_BY_NODE_TYPE, ProjectTreeService
 from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.providers.base import DryRunProvider, provider_from_settings
@@ -25,7 +26,7 @@ from task_manager_cli.storage.repositories import Repository
 from task_manager_cli.writes.logseq_writer import LogseqWriter, WritePreview
 
 
-ROOTS = {"today", "inbox", "waiting", "someday", "ideas", "projects", "mini", "reviews", "proposals"}
+ROOTS = {"today", "dashboard", "inbox", "waiting", "someday", "ideas", "projects", "mini", "reviews", "proposals"}
 
 QUICK_QUESTIONS = [
     {"id": "handling", "text": "你希望如何处理这个条目？行动 / 等待 / 想法 / 资源 / 丢弃 / 稍后"},
@@ -203,6 +204,11 @@ class HumanShellService:
                 self.context.previous_path = old
                 self._apply_context(object_context)
                 return self.context.path
+            node_context = self._resolve_project_node_context(target)
+            if node_context:
+                self.context.previous_path = old
+                self._apply_context(node_context)
+                return self.context.path
         target = self._expand_alias(target)
         if not target.startswith("/"):
             target = self._join_path(self.context.path, target)
@@ -228,10 +234,13 @@ class HumanShellService:
         args = args or []
         filter_name = args[0].lower() if args and not args[0].startswith("--") else None
         show_all = "--all" in args
+        color = False if any(arg in {"--no-color", "no-color", "plain"} for arg in args) else None
 
         inv = build_inventory(self.conn, self.context, self.repo, self.settings)
         sections = inv.get("sections", [])
         if not sections and not inv.get("_project_title"):
+            if inv.get("_note"):
+                return f"Context: {inv.get('context', self.context.path)}\n{inv['_note']}"
             project_title = inv.get("_project_title")
             if project_title:
                 return f"Project: {project_title}\n(empty)"
@@ -249,7 +258,7 @@ class HumanShellService:
         note_section = section_map.pop("_note", None)
 
         if filter_name and filter_name != "all":
-            return self._filtered_ls(filter_name, section_map, note, fallback_section, lines, show_all)
+            return self._filtered_ls(filter_name, section_map, note, fallback_section, lines, show_all, color=color)
 
         # Default: show all sections with limits and overflow
         overflow = inv.get("overflow", {})
@@ -262,7 +271,7 @@ class HumanShellService:
             shown = items[:item_limit]
             extra = len(items) - len(shown)
             lines.append(f"\n{label}:")
-            lines.extend(self._format_section_items(shown, section_type))
+            lines.extend(self._format_section_items(shown, section_type, color=color))
             if extra > 0:
                 lines.append(f"  ... 还有 {extra} 条，可用 ls {section_type} --all")
 
@@ -270,16 +279,17 @@ class HumanShellService:
             lines.append("\n当前 node 关联对象不足，以下为项目级候选：")
             f_items = fallback_section.get("items", [])
             shown = f_items[:DEFAULT_LIMIT]
-            lines.extend(self._format_section_items(shown, fallback_section.get("type", "")))
+            lines.extend(self._format_section_items(shown, fallback_section.get("type", ""), color=color))
             extra = len(f_items) - len(shown)
             if extra > 0:
                 lines.append(f"  ... 还有 {extra} 条")
 
         return "\n".join(lines) if lines else "No items."
 
-    def _format_section_items(self, items: List[dict], section_type: str) -> List[str]:
+    def _format_section_items(self, items: List[dict], section_type: str, *, color: Optional[bool] = None) -> List[str]:
         """Format inventory items for display."""
         lines = []
+        color_enabled = use_color(color)
         for item in items:
             iid = item.get("id", "?")
             title = item.get("title", "")
@@ -301,8 +311,13 @@ class HumanShellService:
                 lines.append(f"  #{iid} RESOURCE {title}  ({src}){attribution}")
             elif item_type == "idea":
                 lines.append(f"  #{iid} IDEA {title}  ({src}){attribution}")
+            elif item_type == "result":
+                lines.append(f"  #{iid} RESULT {title}  ({src}){attribution}")
+            elif item_type == "record":
+                lines.append(f"  #{iid} {color_task_markers(title, color_enabled)}  ({src}){attribution}")
             elif item_type in ("task", "mini_project"):
                 marker = status.upper() if status else item_type.upper()
+                marker = color_status(marker, color_enabled)
                 lines.append(f"  #{iid} {marker} {title}  ({src}){attribution}")
             elif item_type == "project":
                 lines.append(f"  #{iid} {title}")
@@ -310,7 +325,17 @@ class HumanShellService:
                 lines.append(f"  [#{iid}] {item_type} {title}")
         return lines
 
-    def _filtered_ls(self, filter_name: str, section_map: dict, note, fallback_section, header_lines: List[str], show_all: bool = False) -> str:
+    def _filtered_ls(
+        self,
+        filter_name: str,
+        section_map: dict,
+        note,
+        fallback_section,
+        header_lines: List[str],
+        show_all: bool = False,
+        *,
+        color: Optional[bool] = None,
+    ) -> str:
         """Handle filtered ls output."""
         lines = list(header_lines)
 
@@ -319,21 +344,29 @@ class HumanShellService:
             "tasks": ["actions"],
             "todo": ["actions"],
             "doing": ["actions"],
-            "waiting": ["actions"],
+            "waiting": ["actions", "waiting"],
             "ideas": ["ideas"],
             "resources": ["resources"],
             "mini": ["mini_projects"],
             "nodes": ["nodes"],
             "proposals": ["proposals"],
+            "projects": ["projects"],
+            "active": ["actions"],
+            "journal": ["journal"],
+            "exposed": ["exposed"],
+            "results": ["results"],
+            "notes": ["notes"],
+            "done": ["actions"],
+            "reviews": ["reviews"],
         }
 
         target_sections = filter_to_sections.get(filter_name, [])
         if not target_sections:
-            return f"Unknown filter: {filter_name}. Try: tasks, todo, doing, waiting, ideas, resources, mini, nodes, proposals, all"
+            return f"Unknown filter: {filter_name}. Try: tasks, todo, doing, waiting, done, ideas, resources, mini, nodes, projects, journal, exposed, results, proposals, reviews, all"
 
         # Status filtering for todo/doing/waiting
         status_filter = None
-        if filter_name in ("todo", "doing", "waiting"):
+        if filter_name in ("todo", "doing", "waiting", "done"):
             status_filter = filter_name
 
         found = 0
@@ -350,7 +383,7 @@ class HumanShellService:
             lines.append(f"\n{label}:")
             limit = None if show_all else DEFAULT_LIMIT
             shown = items[:limit]
-            lines.extend(self._format_section_items(shown, stype))
+            lines.extend(self._format_section_items(shown, stype, color=color))
             found += 1
             extra = len(items) - len(shown)
             if extra > 0:
@@ -465,7 +498,7 @@ class HumanShellService:
             f"项目：{project['title']}",
             f"位置：{loc.get('file_path') or project.get('file_path')}:{loc.get('line_start') or ''}",
             "",
-            "上下文：",
+            "上级上下文：",
             f"Project: {project['title']}",
         ]
         context = service.render_block_context(block)
@@ -665,7 +698,7 @@ class HumanShellService:
         hint = ""
         if command == "done" and not self._has_result_marker(object_id):
             hint = f"\n该条目已完成，但没有成果标注。可输入 result {object_id} \"...\" 或 noresult {object_id} \"...\""
-        return f"#{object_id} -> {marker} (op #{op.id}{extra}){hint}"
+        return f"#{object_id} -> {color_status(marker, use_color())} (op #{op.id}{extra}){hint}"
 
     def someday(self, args: List[str]) -> str:
         if not args:
@@ -918,7 +951,7 @@ class HumanShellService:
         op = self._apply_direct_preview(preview, f"edit task {target_ref} status {new_status}", f"object:{object_id}")
         self.repo.update_object_after_writeback(object_id, status=marker.lower(), dirty_reason="task_marker")
         self._resync_light(preview.file_path, changed_object_id=object_id)
-        return f"Task #{object_id} -> {marker} (op #{op.id})\nundo: undo {op.id}"
+        return f"Task #{object_id} -> {color_status(marker, use_color())} (op #{op.id})\nundo: undo {op.id}"
 
     # ── clarify ───────────────────────────────────────────────────────────
 
@@ -1251,7 +1284,7 @@ class HumanShellService:
                     f"operation: {operation}",
                     f"line: {preview.line_start or ''}",
                     "content:",
-                    f"  - {content}",
+            f"  - {color_task_markers(content, use_color())}",
                     "diff:",
                     preview.diff[:1200],
                 ]
@@ -1269,9 +1302,9 @@ class HumanShellService:
             "undo: available",
         ]
         if old_line:
-            lines.extend(["", "old:", f"  {old_line.strip()}"])
+            lines.extend(["", "old:", f"  {color_task_markers(old_line.strip(), use_color())}"])
         if new_line:
-            lines.extend(["", "new child:" if is_append else "new:", f"  {new_line.strip()}"])
+            lines.extend(["", "new child:" if is_append else "new:", f"  {color_task_markers(new_line.strip(), use_color())}"])
         return "\n".join(lines)
 
     def _preview_old_new(self, preview: WritePreview) -> Tuple[str, str]:
@@ -1515,6 +1548,24 @@ class HumanShellService:
             "current_object_location": f"{obj.get('file_path')}:{obj.get('line_start') or ''}",
         }
 
+    def _resolve_project_node_context(self, target: str) -> Optional[Dict[str, Any]]:
+        if not self.context.project_ref:
+            return None
+        raw = target.strip()
+        if not raw:
+            return None
+        node = self._match_project_node(self.context.project_ref, [raw])
+        if not node:
+            return None
+        project = self._object(self.context.project_ref)
+        label = LABEL_BY_NODE_TYPE.get(node["node_type"], node["node_type"])
+        return {
+            "path": f"/projects/{project['title']}/{label}/{node['title']}",
+            "project_ref": str(project["id"]),
+            "project_node_id": node["id"],
+            "project_node_title": node["title"],
+        }
+
     def _match_project_node(self, project_ref: str, parts: List[str]) -> Optional[Dict[str, Any]]:
         tree = ProjectTreeService(self.conn, self.settings).build(project_ref, detail=False)
         flat: List[Dict[str, Any]] = []
@@ -1522,7 +1573,7 @@ class HumanShellService:
         wanted = parts[-1]
         for node in flat:
             label = LABEL_BY_NODE_TYPE.get(node["node_type"], node["node_type"])
-            if node["title"] == wanted or label == wanted or wanted in node["title"] or f"{label}/{node['title']}" == "/".join(parts):
+            if node["id"] == wanted or node["title"] == wanted or label == wanted or wanted in node["title"] or f"{label}/{node['title']}" == "/".join(parts):
                 return node
         return None
 

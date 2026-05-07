@@ -48,6 +48,7 @@ ta:/projects/项目-韩国旅行/工作流/出行交通>
 ```text
 /
 ├── today
+├── dashboard
 ├── inbox
 ├── waiting
 ├── someday
@@ -64,6 +65,7 @@ ta:/projects/项目-韩国旅行/工作流/出行交通>
 pwd
 ls
 cd /today
+cd /dashboard
 cd /projects
 cd /projects/项目-韩国旅行
 cd 工作流/出行交通
@@ -107,8 +109,10 @@ show
 ```
 
 `tree` 只显示当前节点下面的 semantic subtree；如果没有结构化子节点，会提示使用 `show`。`show`
-显示当前节点的类型、id、所属项目、source location、简洁上级 context，以及该节点完整 Logseq raw subtree，
-包括普通块、TODO 子块、properties 和 marker。
+显示任意 semantic project node 的类型、id、所属项目、source location、简洁上级 context，以及该节点完整
+Logseq raw subtree，包括普通块、TODO / DOING / WAITING / DONE 子块、properties 和 marker。支持的节点包括
+目标、价值层、目标层、里程碑、工作流、具体事务、小任务、资源、成果、无成果、想法、反思、项目收件箱、
+待澄清、注、AI注。标题重复时依赖稳定 node id / source location，不只靠 title 定位。
 
 在 mini project 或 object context 下，省略目标的 `show` 会展示当前对象的 raw subtree：
 
@@ -119,6 +123,69 @@ show
 
 `tree detail` 临时显示 node id / type / line / children count。`tree plain` 或 `tree no-color`
 禁用 ANSI；非 TTY 和 `NO_COLOR=1` 也会自动禁用颜色。
+
+## Status Colors
+
+Human-readable 视图会对 task marker 使用偏深色 ANSI：
+
+```text
+TODO     blue
+DOING    magenta
+WAITING  dark yellow
+DONE     green
+CANCELED gray
+```
+
+覆盖 `ls tasks`、`ls todo/doing/waiting/done`、`show` raw subtree、`tree raw`、write preview old/new、
+`doing` / `done` / `wait` 操作结果、object context show 和 project node context show。`NO_COLOR=1`、非 TTY、
+`ls --no-color`、`tree plain`、`tree no-color` 会输出纯文本。JSON / Agent structured 输出不加 ANSI。
+
+## Today And Dashboard
+
+`/today` 和 `/dashboard` 分工明确：
+
+```text
+/today      = 今日现场
+/dashboard  = 全局行动态势
+```
+
+`/today` 默认只显示今日 journal 的事实和今天暴露出的对象，不再把全库 TODO / DOING 当作“今天要做”。它不做优先级判断，也不自动决定今天该做什么。
+
+第一版 `/today` 子视图：
+
+```text
+ls journal
+ls tasks
+ls exposed
+ls results
+ls ideas
+ls notes
+ls all
+```
+
+今日 journal 不存在或为空时，`ls` 会提示空状态和预期 journal 文件位置。
+
+`/dashboard` 承接原 `/today` 的全局驾驶舱职责。默认展示 active projects、active tasks、waiting、pending proposals、open reviews 和 ideas。
+
+第一版 `/dashboard` 子视图：
+
+```text
+ls projects
+ls tasks
+ls active
+ls waiting
+ls proposals
+ls reviews
+ls ideas
+ls all
+```
+
+Tab completion 和 fallback `complete cd /d` 支持 `/dashboard`。Agent 侧语义预留为：
+
+```text
+tm agent today-context      # 今日事实
+tm agent dashboard-context  # 全局态势，后续补齐
+```
 
 ## Direct Actions
 
