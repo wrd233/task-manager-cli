@@ -55,3 +55,24 @@ def test_legacy_content_hash_source_id_matches_by_location(tmp_path):
     conn.commit()
 
     assert repo.get_object(task["id"])["source_item_id"] == task["source_item_id"]
+
+
+def test_location_identity_does_not_update_into_existing_source_id(tmp_path):
+    shell, repo, graph, conn = loaded_shell(tmp_path)
+    task = next(item for item in repo.list_objects("task", limit=50) if item["title"] == "已有项目任务")
+    conn.execute("UPDATE objects SET source_item_id=? WHERE id=?", (f"{task['source_item_id']}:oldhash", task["id"]))
+    conn.execute(
+        """
+        INSERT INTO objects(object_type, title, status, canonical_source, source_item_id, canonical_location_id, confidence, metadata_json)
+        VALUES ('idea', 'same source old type', 'captured', 'logseq', ?, ?, 0.5, '{}')
+        """,
+        (task["source_item_id"], task["canonical_location_id"]),
+    )
+    conn.commit()
+
+    Merger(repo).ingest(LogseqAdapter(graph).scan())
+    conn.commit()
+
+    rows = conn.execute("SELECT id, object_type, source_item_id FROM objects WHERE source_item_id=?", (task["source_item_id"],)).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["object_type"] == "task"

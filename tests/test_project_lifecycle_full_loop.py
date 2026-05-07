@@ -73,9 +73,10 @@ def test_project_capture_unplaced_clarify_pack_health_and_dashboard(tmp_path):
 
     service = ProjectLifecycleService(conn, settings)
     unplaced = service.unplaced("测试项目")
-    assert len(unplaced) >= 3
+    assert len(unplaced) >= 2
     assert any(item["object_type"] == "task" for item in unplaced)
     assert "先记录一个任务" in shell.run_line("ls tasks")
+    assert "一个还不成熟的想法" in shell.run_line("ls ideas")
     assert "一个参考资料" in shell.run_line("ls resources")
 
     clarify = service.clarify_project("测试项目", target="unplaced", provider_name="mock")
@@ -86,7 +87,7 @@ def test_project_capture_unplaced_clarify_pack_health_and_dashboard(tmp_path):
 
     pack = service.project_pack("测试项目")
     assert pack["unplaced_objects"]
-    assert pack["project_health"]["unplaced_count"] >= 3
+    assert pack["project_health"]["unplaced_count"] >= 2
     assert "forbidden_operations" in pack["constraints"]
     assert "raw_text" not in json.dumps(pack["semantic_tree"], ensure_ascii=False)
 

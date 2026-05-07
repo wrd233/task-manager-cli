@@ -597,3 +597,76 @@ clarify mode quick
 ```
 
 `quick` 只问 1 个处理方式问题；`standard` 默认问 2-3 个关键问题；`deep` 保留原完整问题集；`ai` 调用 provider 生成最多 3 个 `questions_for_user`，只记录问题和回答，不直接写回、不 apply。
+
+## UX Hardening Notes
+
+- `/today` 是今日现场，`/dashboard` 是全局态势，`/projects` 是项目空间。
+- `tree` 看结构，`ls` 看可操作对象，`show` 看当前位置内容，`find` 默认当前上下文优先。
+- 在 `/projects` 里执行 `project create "名称"` 会自动进入新项目，后续 `todo` / `idea` / `resource` / `result` 会写入该项目。
+- `show` 无参数时会展示当前 project、object、node 或 root context，不再只返回 usage。
+- Shell 支持 `rollback <proposal-id|local-number>`，用于显式回滚已 apply 的 proposal。
+- `ls tasks` 等过滤命令在空上下文会返回 `No tasks found` 这类明确空态。
+
+## Terminal Workspace / Layout
+
+Human Shell 现在支持持续工作台模式：
+
+```text
+layout on
+layout off
+layout refresh
+layout compact
+layout standard
+layout full
+```
+
+开启后，每次命令后会刷新一个稳定 layout，而不是只把输出追加到滚动历史。layout 包含：
+
+- `Context`：Path、Project、Node、Focus、View、Mode、Sync Status。
+- `Main View`：当前持久 view。
+- `Actionable List`：当前上下文中可操作对象，standard 模式会限制数量。
+- `Last Message`：上一条命令结果或可操作错误。
+
+支持的 view：
+
+```text
+view show
+view tree
+view tasks
+view today
+view dashboard
+view proposals
+view health
+view search
+view preview
+view edit
+```
+
+`tree`、`show`、`ls tasks`、`find`、`proposals`、`quality project` 会自然更新 current view。`todo`、`note`、`result`、`done`、`edit` 等写操作默认保持当前 view，只刷新内容和状态，避免用户刚建立的上下文被切走。
+
+`focus <id>` / `select <id>` 只改变当前焦点，不改变路径。`cd <id>` 才进入对象 context。无目标的 `insert`、`note`、`result`、`done` 等命令会优先使用当前 focus；没有 focus 时会给出下一步提示。
+
+Sync Status 示例：
+
+```text
+File: synced ✓ | Index: fresh ✓ | Buffer: none | View: fresh ✓ | Rollback: op #3 | Mode: NORMAL
+```
+
+它用于回答：文件是否写入、索引是否刷新、buffer 是否 dirty、当前 view 是否新、最近操作是否可 rollback。
+
+## Inline Edit
+
+`insert` 可以直接编辑当前 focus / 当前 `show` 对象，不调用外部编辑器：
+
+```text
+insert
+insert line
+insert subtree
+insert <id>
+insert <id> line
+insert <id> subtree
+```
+
+默认范围：task / idea / resource 使用 `line`；mini project 和 project semantic node 使用 `subtree`。project root、`/today`、`/dashboard`、`/proposals` 不允许直接 insert，需要先 `focus <id>`、`show <id>` 或 `cd <node>`。
+
+第一版 inline edit 使用保守 line-mode fallback，支持文本输入、多行粘贴、`:left` / `:right` / `:up` / `:down` / `:home` / `:end` / `:backspace` / `:delete`、`:show`、`:save`、`:cancel`。保存前强制 preview，确认后写回、单文件 refresh 并记录 `undo`。如果编辑期间文件被外部修改，会进入 conflict 状态并拒绝覆盖。

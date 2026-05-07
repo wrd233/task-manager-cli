@@ -693,12 +693,21 @@ def _child_item(row: dict) -> dict:
 
 def _is_project_inbox_child(row: dict) -> bool:
     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    return meta.get("placement_status") == "unplaced" or "项目收件箱" in (meta.get("section_markers") or []) or row.get("_attribution") == "page"
+    return meta.get("placement_status") == "unplaced" or _has_section_marker(meta.get("section_markers") or [], {"项目收件箱", "待澄清"}) or row.get("_attribution") == "page"
 
 
 def _is_project_unplaced_child(row: dict) -> bool:
     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    return meta.get("placement_status") in {"unplaced", "project_level", "needs_node"} or "项目收件箱" in (meta.get("section_markers") or []) or row.get("_attribution") == "page"
+    markers = meta.get("section_markers") or []
+    if meta.get("placement_status") in {"unplaced", "project_level", "needs_node"}:
+        return True
+    if _has_section_marker(markers, {"目标", "里程碑", "工作流", "具体事务", "小任务", "资源", "成果", "想法", "反思", "无成果"}):
+        return False
+    return _has_section_marker(markers, {"项目收件箱", "待澄清"}) or row.get("_attribution") == "page"
+
+
+def _has_section_marker(section_markers: List[str], marker_names: set) -> bool:
+    return any(any(f"[{name}]" in marker or name == marker for name in marker_names) for marker in section_markers)
 
 
 # ─── today / dashboard v2 overrides ───────────────────────────────────────────

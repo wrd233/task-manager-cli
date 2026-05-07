@@ -23,6 +23,9 @@ from task_manager_cli.reviews.service import ReviewSessionService
 from task_manager_cli.projects.quality import ProjectQualityService
 from task_manager_cli.shell.completion import ShellCompleter
 from task_manager_cli.shell.inventory import DEFAULT_LIMIT, build_inventory
+from task_manager_cli.shell.inline_editor import InlineEditor
+from task_manager_cli.shell.layout import LayoutRenderer, LayoutState, default_view_for_path, view_for_command
+from task_manager_cli.shell.views import ShellViewRenderer
 from task_manager_cli.storage.repositories import Repository
 from task_manager_cli.writes.logseq_writer import LogseqWriter, WritePreview
 
@@ -87,11 +90,30 @@ class HumanShellService:
             raise ConfigError("Logseq graph path is not configured.")
         self.writer = LogseqWriter(settings.logseq_graph_path)
         self.completer = ShellCompleter(self)
+        self.layout_state = LayoutState(current_view=default_view_for_path(self.context.path))
+        self.view_renderer = ShellViewRenderer(self)
+        self.inline_editor = InlineEditor(self)
 
     def prompt(self) -> str:
         return f"ta:{self.context.path}> "
 
     def run_line(self, line: str) -> str:
+        raw = line.strip()
+        try:
+            parts = shlex.split(raw) if raw else []
+        except ValueError:
+            parts = []
+        command = parts[0] if parts else ""
+        args = parts[1:] if len(parts) > 1 else []
+        result = self._dispatch_line(line)
+        if result == "__exit__":
+            return result
+        self._after_command(command, args, result)
+        if self.layout_state.enabled:
+            return self.render_layout()
+        return result
+
+    def _dispatch_line(self, line: str) -> str:
         line = line.strip()
         if not line:
             return ""
@@ -104,6 +126,14 @@ class HumanShellService:
             return ""
         command, args = parts[0], parts[1:]
         try:
+            if command == "layout":
+                return self.layout(args)
+            if command == "view":
+                return self.view(args)
+            if command in {"focus", "select"}:
+                return self.focus(args)
+            if command in {"insert", "i"}:
+                return self.inline_editor.start(args)
             if command in {"help", "?"}:
                 return self.help()
             if command in {"exit", "quit"}:
@@ -157,6 +187,8 @@ class HumanShellService:
                 return self._route_edit(args)
             if command in {"accept", "reject", "preview", "apply", "supersede"}:
                 return self.proposal_action(command, args)
+            if command == "rollback":
+                return self.rollback(args)
             if command == "clarify":
                 return self.clarify(args)
             if command == "provider":
@@ -168,23 +200,175 @@ class HumanShellService:
                 return result.display or "\n".join(result.candidates) or "No completions."
             return f"Unknown command: {command}. Type `help`."
         except (TaskManagerError, ConfigError, NotFoundError, ValueError, KeyError) as exc:
+            self.layout_state.sync_status.mark_write_failed(str(exc))
             return f"Error: {exc}"
 
     def help(self) -> str:
         return "\n".join(
             [
                 "Human Shell commands:",
+                "心智模型: /today 今日现场, /dashboard 全局态势, /projects 项目空间",
+                "分工: tree 看结构, ls 看可操作对象, show 看当前内容, find 在当前上下文搜索",
                 "导航: pwd, ls, cd, tree, show, open, find",
                 "创建: project create, new project, todo, idea, mini, resource",
                 "状态/成果: note, ainote, doing, done, wait, someday, result, noresult",
                 "安全: preview on|off, where, history, undo [op]",
-                "Proposal: proposals, accept, reject, edit, supersede, preview, apply",
+                "Proposal: proposals, accept, reject, edit, supersede, preview, apply, rollback",
                 "Clarify: clarify, clarify resume|status|retry|eval|cancel",
                 "质量报告: quality project-tree|mini|membership|clarify|all",
                 "补全: Tab completion; fallback `complete <line>`",
+                "Workspace: layout on|off|refresh|compact|standard|full, view show|tree|tasks|today|dashboard|proposals|health|search|preview|edit, focus <id>, insert [id] [line|subtree]",
                 "其他: provider, commands, clear-history, detail on|off, exit",
             ]
         )
+
+    def layout(self, args: List[str]) -> str:
+        action = args[0] if args else "on"
+        if action == "on":
+            self.layout_state.enabled = True
+            self.layout_state.density = "standard"
+            self.layout_state.set_view(default_view_for_path(
+                self.context.path,
+                has_project=bool(self.context.project_ref),
+                has_node=bool(self.context.project_node_id),
+                has_object=bool(self.context.current_object_id),
+            ))
+            return "layout: on"
+        if action == "off":
+            self.layout_state.enabled = False
+            return "layout: off"
+        if action == "refresh":
+            self.layout_state.sync_status.view_status = "fresh"
+            return "layout refreshed."
+        if action in {"compact", "standard", "full"}:
+            self.layout_state.enabled = True
+            self.layout_state.density = action
+            return f"layout: {action}"
+        return "Usage: layout on|off|refresh|compact|standard|full"
+
+    def view(self, args: List[str]) -> str:
+        if not args:
+            return f"view: {self.layout_state.current_view}"
+        name = args[0]
+        from task_manager_cli.shell.layout import VALID_VIEWS
+        if name not in VALID_VIEWS:
+            return "Usage: view show|tree|tasks|today|dashboard|proposals|health|search|preview|edit"
+        if name == "health" and not self.context.project_ref:
+            return "view health requires a project context.\nUse cd /projects/<project> first."
+        if name == "tree" and not self.context.project_ref:
+            return "view tree requires a project context.\nUse cd /projects/<project> first."
+        self.layout_state.enabled = True
+        self.layout_state.set_view(name)
+        return f"view: {name}"
+
+    def focus(self, args: List[str]) -> str:
+        if not args:
+            focus = self._focus_label()
+            return f"focus: {focus}" if focus != "-" else "No current focus. Use focus <id>, cd <id>, or show <id>."
+        ref = args[0]
+        if self.context.project_ref:
+            node = self._match_project_node(self.context.project_ref, [ref])
+            if node:
+                self.layout_state.set_focus(node["id"], f"node {node['title']}")
+                return f"Focus: {node['id']} {node['title']}"
+        target = self.resolve_target(ref, allow_types={"task", "idea", "mini_project", "reference", "resource", "project"})
+        if not target:
+            return f"Object not found: {ref}"
+        obj = target["object"]
+        self.layout_state.set_focus(str(obj["id"]), f"#{obj['id']} {obj['object_type']} {obj['title']}")
+        return f"Focus: #{obj['id']} {obj['title']}"
+
+    def render_layout(self) -> str:
+        rendered = self.view_renderer.render(self.layout_state.current_view)
+        return LayoutRenderer(clear_screen=False).render(
+            state=self.layout_state,
+            path=self.context.path,
+            project=self._project_label(),
+            node=self._node_label(),
+            focus=self._focus_label(),
+            main_title=rendered.title,
+            main_body=rendered.body,
+            actions_title=rendered.actions_title,
+            actions_body=rendered.actions_body,
+            prompt=self.prompt(),
+        )
+
+    def _after_command(self, command: str, args: List[str], result: str) -> None:
+        if command in {"exit", "quit"}:
+            return
+        if command == "find":
+            self.layout_state.last_search = " ".join(args)
+        if command in {"preview", "where"} and result:
+            self.layout_state.last_preview = result
+        if command in {"cd"}:
+            self.layout_state.set_view(default_view_for_path(
+                self.context.path,
+                has_project=bool(self.context.project_ref),
+                has_node=bool(self.context.project_node_id),
+                has_object=bool(self.context.current_object_id),
+            ))
+        if command in {"todo", "idea", "mini", "resource", "note", "ainote", "result", "noresult", "done", "doing", "wait", "someday", "edit", "apply", "rollback", "undo"}:
+            self.layout_state.sync_status.view_status = "fresh"
+        auto_view = view_for_command(command, args)
+        if auto_view:
+            self.layout_state.set_view(auto_view)
+        self._sync_focus_from_context(command, args)
+        if result:
+            self.layout_state.last_message = result
+
+    def _sync_focus_from_context(self, command: str, args: List[str]) -> None:
+        if self.context.current_object_id:
+            self.layout_state.set_focus(str(self.context.current_object_id), f"#{self.context.current_object_id} {self.context.current_object_type or ''} {self.context.current_object_title or ''}".strip())
+            return
+        if self.context.project_node_id:
+            self.layout_state.set_focus(self.context.project_node_id, f"node {self.context.project_node_title or self.context.project_node_id}")
+            return
+        if self.context.mini_ref:
+            try:
+                obj = self._object(self.context.mini_ref)
+                self.layout_state.set_focus(str(obj["id"]), f"#{obj['id']} mini_project {obj['title']}")
+            except Exception:
+                pass
+            return
+        if command == "show" and args:
+            ref = args[-1]
+            if self.context.project_ref:
+                node = self._match_project_node(self.context.project_ref, [ref])
+                if node:
+                    self.layout_state.set_focus(node["id"], f"node {node['title']}")
+                    return
+            if ref.isdigit():
+                try:
+                    obj = self.repo.get_object(int(ref))
+                except Exception:
+                    obj = None
+                if obj:
+                    self.layout_state.set_focus(str(obj["id"]), f"#{obj['id']} {obj['object_type']} {obj['title']}")
+
+    def _project_label(self) -> str:
+        if not self.context.project_ref:
+            return "-"
+        try:
+            project = self._object(self.context.project_ref)
+            return f"#{project['id']} {project['title']}"
+        except Exception:
+            return str(self.context.project_ref)
+
+    def _node_label(self) -> str:
+        if self.context.project_node_id:
+            return f"{self.context.project_node_id} {self.context.project_node_title or ''}".strip()
+        if self.context.current_object_id:
+            return f"object #{self.context.current_object_id}"
+        if self.context.mini_ref:
+            return f"mini #{self.context.mini_ref}"
+        return "-"
+
+    def _focus_label(self) -> str:
+        if self.layout_state.current_focus_label:
+            return self.layout_state.current_focus_label
+        if self.layout_state.current_focus:
+            return self.layout_state.current_focus
+        return "-"
 
     def cd(self, target: str) -> str:
         old = self.context.path
@@ -244,6 +428,8 @@ class HumanShellService:
         inv = build_inventory(self.conn, self.context, self.repo, self.settings)
         sections = inv.get("sections", [])
         if not sections and not inv.get("_project_title"):
+            if filter_name and filter_name != "all":
+                return f"Context: {inv.get('context', self.context.path)}\nNo {filter_name} found."
             if inv.get("_note"):
                 return f"Context: {inv.get('context', self.context.path)}\n{inv['_note']}"
             project_title = inv.get("_project_title")
@@ -433,7 +619,9 @@ class HumanShellService:
         if not args and self.context.current_object_id:
             args = [str(self.context.current_object_id)]
         if not args:
-            return "Usage: show <object-id>|proposal <id>|review <id>"
+            if self.context.project_ref:
+                return self._show_project_context()
+            return self.ls([])
         if args[0] == "proposal" and len(args) > 1:
             return json.dumps(ProposalService(self.conn, self.settings).get(self._proposal_id(args[1])), ensure_ascii=False, indent=2)
         if args[0] == "review" and len(args) > 1:
@@ -483,6 +671,24 @@ class HumanShellService:
 
     def _show_project_node_context(self) -> str:
         return self._show_project_node_ref(self.context.project_node_id or "") or "Project node not found."
+
+    def _show_project_context(self) -> str:
+        project = self._object(self.context.project_ref)
+        lifecycle = ProjectLifecycleService(self.conn, self.settings)
+        health = lifecycle.project_health(str(project["id"]))
+        tree_service = ProjectTreeService(self.conn, self.settings)
+        tree = tree_service.build(str(project["id"]), detail=False)
+        return "\n".join(
+            [
+                f"Project #{project['id']} {project['title']}",
+                f"位置：{project.get('file_path')}:{project.get('line_start') or ''}",
+                f"health: {health['health_score']} active={health['active_tasks_count']} waiting={health['waiting_count']} unplaced={health['unplaced_count']}",
+                f"tree nodes: {tree.get('summary', {}).get('node_count', 0)}",
+                "",
+                "结构：",
+                tree_service.render_markdown(tree, detail=False),
+            ]
+        )
 
     def _show_project_node_ref(self, node_ref: str) -> Optional[str]:
         if not self.context.project_ref or not node_ref:
@@ -671,9 +877,10 @@ class HumanShellService:
             return data["preview_diff"]
         self.conn.commit()
         op = self._record_operation(f"project create {name}", "direct_write", f"project:{name}", file_path=data["file_path"], created_file=True)
-        if enter:
+        if enter or self.context.path == "/projects":
             self.cd(f"/projects/{name}")
-        return f"project created: {name} (op #{op.id})\nundo: undo {op.id}"
+        location = f"\ncurrent: {self.context.path}" if self.context.project_ref else ""
+        return f"project created: {name} (op #{op.id}){location}\nundo: undo {op.id}"
 
     def create_item(self, kind: str, text: str, preview_only: bool = False) -> str:
         if not text:
@@ -892,6 +1099,15 @@ class HumanShellService:
             self.conn.commit()
             return f"Superseded proposal {proposal_id} with {self._proposal_id(args[1])}."
         return f"Unsupported proposal command: {command}"
+
+    def rollback(self, args: List[str]) -> str:
+        if not args:
+            return "Usage: rollback <proposal-id|local-number>"
+        proposal_id = self._proposal_id(args[0])
+        result = ProposalService(self.conn, self.settings).rollback(proposal_id)
+        self.conn.commit()
+        self._resync()
+        return f"Rolled back proposal {proposal_id}: {result['status']}"
 
     # ── edit routing ──────────────────────────────────────────────────────
 
@@ -1280,7 +1496,9 @@ class HumanShellService:
         backup = self.writer.apply(preview, preview.original_sha256, self.settings.write_backup_dir or self.settings.app_dir / "backups")
         self.conn.commit()
         backup_path = str(backup) if backup and str(backup) not in {"", "."} else None
-        return self._record_operation(command, "direct_write", target, file_path=str(preview.file_path), backup_path=backup_path, created_file=created_file)
+        op = self._record_operation(command, "direct_write", target, file_path=str(preview.file_path), backup_path=backup_path, created_file=created_file)
+        self.layout_state.sync_status.mark_write_success(str(preview.file_path), preview.line_start, op.id)
+        return op
 
     def _record_operation(self, command: str, kind: str, target: str, file_path: Optional[str] = None, backup_path: Optional[str] = None, proposal_id: Optional[int] = None, created_file: bool = False) -> ShellOperation:
         op = ShellOperation(len(self.history) + 1, command, kind, target, file_path=file_path, backup_path=backup_path, proposal_id=proposal_id, created_file=created_file, content=command)
@@ -1512,6 +1730,8 @@ class HumanShellService:
             Merger(self.repo).ingest(result)
         if changed_object_id:
             self.repo.update_object_after_writeback(changed_object_id, dirty_reason="shell_writeback")
+        self.layout_state.sync_status.index_status = "fresh"
+        self.layout_state.sync_status.view_status = "fresh"
         self.conn.commit()
 
     def _mark_recent_project_capture(self, kind: str, text: str) -> None:

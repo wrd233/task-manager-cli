@@ -10,6 +10,7 @@ COMMANDS = [
     "accept", "reject", "edit", "supersede", "preview", "apply",
     "history", "ops", "commands", "clear-history", "undo",
     "where", "quality", "q", "detail", "complete",
+    "layout", "view", "focus", "select", "insert", "i",
     "help", "exit", "quit",
 ]
 
@@ -22,6 +23,9 @@ EDIT_SUBCOMMANDS = ["proposal", "task"]
 TASK_FIELDS = ["title", "content", "status"]
 TASK_STATUSES = ["todo", "doing", "waiting", "done"]
 PROPOSAL_FIELDS = ["content", "reason", "risk", "marker"]
+LAYOUT = ["on", "off", "refresh", "compact", "standard", "full"]
+VIEWS = ["show", "tree", "tasks", "today", "dashboard", "proposals", "health", "search", "preview", "edit"]
+INSERT = ["line", "subtree"]
 
 
 @dataclass
@@ -76,6 +80,18 @@ class ShellCompleter:
 
         if command == "provider":
             return PROVIDERS
+
+        if command == "layout":
+            return LAYOUT
+
+        if command == "view":
+            return VIEWS
+
+        if command in {"focus", "select"}:
+            return self.shell.completion_object_candidates("show") + self.shell.completion_project_node_names()
+
+        if command in {"insert", "i"}:
+            return INSERT + self.shell.completion_object_candidates("show") + self.shell.completion_project_node_names()
 
         if command in {"quality", "q"}:
             return QUALITY
