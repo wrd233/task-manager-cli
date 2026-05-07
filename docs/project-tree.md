@@ -179,3 +179,15 @@ tree plain    # 禁用 ANSI 颜色
 ```
 
 如果当前节点下没有结构化子节点，`tree` 会提示使用 `show` 查看完整 Logseq 子树。
+
+## Marker Aliases
+
+Project Tree 会把历史项目模板 alias 归一到当前模型：
+
+- `[具体目标]` 识别为 objective。
+- `[资源列表]` 识别为 resource。
+- `[头脑风暴]` 和 `[随想]` 识别为 idea。
+- `[心得]`、`[复盘]`、`[经验]` 识别为 reflection。
+- `[产出]`、`[交付物]` 识别为 result。
+
+空 section header 保留为 tree node，但不会被抽取成 fake action object。

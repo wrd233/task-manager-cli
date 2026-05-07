@@ -11,6 +11,7 @@ from task_manager_cli.adapters.logseq.extractors import (
     page_name_from_path,
     page_refs,
     idea_marker,
+    is_placeholder_title,
     is_reference_record,
     project_confidence,
     role_for_child,
@@ -301,7 +302,9 @@ class LogseqAdapter:
             return
         source_id = self._block_source_id(block)
         journal_date = journal_date_from_path(parsed.file_path)
-        title = semantic_marker_content(block.raw) or "未命名小任务"
+        title = semantic_marker_content(block.raw)
+        if not title or is_placeholder_title(title):
+            return
         mini_project = ActionObject(
             object_type=ObjectType.MINI_PROJECT.value,
             title=title,
@@ -337,7 +340,7 @@ class LogseqAdapter:
         source_id = self._block_source_id(block)
         journal_date = journal_date_from_path(parsed.file_path)
         title = semantic_marker_content(block.raw)
-        if not title:
+        if not title or is_placeholder_title(title):
             return
         resource = ActionObject(
             object_type=ObjectType.REFERENCE.value,

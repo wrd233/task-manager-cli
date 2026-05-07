@@ -4,6 +4,18 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
+MARKER_ALIASES = {
+    "具体目标": "目标",
+    "资源列表": "资源",
+    "头脑风暴": "想法",
+    "随想": "想法",
+    "心得": "反思",
+    "复盘": "反思",
+    "经验": "反思",
+    "产出": "成果",
+    "交付物": "成果",
+}
+
 PROJECT_MARKERS = [
     "[目标]",
     "[具体目标]",
@@ -14,6 +26,9 @@ PROJECT_MARKERS = [
     "[资源列表]",
     "[头脑风暴]",
     "[反思]",
+    "[心得]",
+    "[复盘]",
+    "[经验]",
     "[价值层]",
     "[目标层]",
     "[里程碑]",
@@ -24,6 +39,8 @@ PROJECT_MARKERS = [
     "[AI注]",
     "[待澄清]",
     "[成果]",
+    "[产出]",
+    "[交付物]",
     "[无成果]",
 ]
 
@@ -32,7 +49,7 @@ TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)(?:\s+(.+)|\s*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
 IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
 SEMANTIC_MARKER_RE = re.compile(
-    r"^(?:\*\*)?\[(目标|价值层|目标层|里程碑|工作流|小任务|具体事务|资源|项目收件箱|想法|反思|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$"
+    r"^(?:\*\*)?\[(目标|具体目标|价值层|目标层|里程碑|工作流|小任务|具体事务|资源|资源列表|项目收件箱|想法|头脑风暴|随想|反思|心得|复盘|经验|待澄清|注|AI注|成果|产出|交付物|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$"
 )
 ENGLISH_SEMANTIC_MARKER_RE = re.compile(
     r"^(Goal|Milestone|Workflow|Tasks|Resources|Results|Ideas|Inbox|Reflection)(?:\s+|[:：]\s*)?(.*)$",
@@ -109,6 +126,8 @@ def parse_priority(text: str) -> Optional[str]:
 
 def is_valid_idea_title(title: str) -> bool:
     cleaned = normalize_text(title).strip(" *:：-—_`")
+    if is_placeholder_title(cleaned):
+        return False
     if len(cleaned) < 2:
         return False
     if cleaned.startswith("]") or cleaned in {"]", "[", "]]"}:
@@ -118,6 +137,13 @@ def is_valid_idea_title(title: str) -> bool:
     if re.fullmatch(r"\[\[[^\]]+\]\]", cleaned):
         return False
     return True
+
+
+def is_placeholder_title(title: str) -> bool:
+    cleaned = normalize_text(title).strip()
+    if re.fullmatch(r"<[^>]{1,80}>", cleaned):
+        return True
+    return cleaned in {"一些明确要做的内容", "待完成的目标", "事务执行过程中你的想法", "事务处理过程中你可以用到的资源"}
 
 
 def parse_idea(raw: str) -> Optional[str]:
@@ -139,7 +165,8 @@ def semantic_marker(raw: str) -> Optional[str]:
     text = strip_bullet(raw)
     match = SEMANTIC_MARKER_RE.match(text)
     if match:
-        return match.group(1)
+        marker = match.group(1)
+        return MARKER_ALIASES.get(marker, marker)
     english = ENGLISH_SEMANTIC_MARKER_RE.match(text)
     if english:
         return ENGLISH_MARKER_ALIASES.get(english.group(1).lower())

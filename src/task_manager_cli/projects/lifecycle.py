@@ -425,8 +425,10 @@ class ProjectLifecycleService:
         if metadata.get("placement_status"):
             return metadata["placement_status"]
         section_markers = metadata.get("section_markers") or []
-        if "项目收件箱" in section_markers:
+        if _has_section_marker(section_markers, {"项目收件箱", "待澄清"}):
             return "unplaced"
+        if _has_section_marker(section_markers, {"目标", "里程碑", "工作流", "具体事务", "小任务", "资源", "成果", "想法", "反思", "无成果"}):
+            return "placed"
         if obj.get("file_path") == project.get("file_path"):
             return "project_level"
         return "unplaced"
@@ -436,7 +438,7 @@ class ProjectLifecycleService:
 
     def _is_inbox_item(self, item: Dict[str, Any]) -> bool:
         meta = item.get("metadata") or {}
-        return item.get("placement_status") == "unplaced" or "项目收件箱" in (meta.get("section_markers") or [])
+        return item.get("placement_status") == "unplaced" or _has_section_marker(meta.get("section_markers") or [], {"项目收件箱", "待澄清"})
 
     def _object_has_result(self, object_id: int) -> bool:
         return any(record.get("role") == "result_marker" for record in self.repo.records_for_object(int(object_id), limit=100))
@@ -613,3 +615,7 @@ def validate_agent_output(data: Dict[str, Any]) -> None:
     for key in required - {"summary"}:
         if not isinstance(data.get(key), list):
             raise ValueError(f"Agent output `{key}` must be a list.")
+
+
+def _has_section_marker(section_markers: List[str], marker_names: set) -> bool:
+    return any(any(f"[{name}]" in marker or name == marker for name in marker_names) for marker in section_markers)

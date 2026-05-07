@@ -19,3 +19,4 @@ local-config.json
 dist/
 build/
 reports/
+backups/

@@ -162,6 +162,16 @@ page。
 
 Lifecycle Proposal 类型包括 `create_project`、`create_project_node`、`link_object_to_node`、`append_block_ref_to_node`、`promote_to_mini_project`、`convert_idea_to_task`、`mark_object_as_resource`、`mark_object_as_result`、`archive_project_item`。其中安全 apply 当前只覆盖 append-only / internal-only 类型；`move_original_block`、`delete_block`、`merge_blocks`、`mass_reorder` 禁止直接 apply。
 
+## Project Restructure Pack
+
+`tm agent project-pack <project>` 给出项目健康、语义树、unplaced、tasks、ideas、resources、results 和约束。`tm agent project-restructure-pack <project>` 增加 node evidence command 和 expected output schema。Agent 需要 raw 证据时使用：
+
+```bash
+tm agent project-node <node-id> --project "<project>" --raw --context
+```
+
+Agent 输出仍只能转成 Proposal；不能直接移动、删除、合并或重排真实 Logseq block。
+
 ## 隐私默认值
 
 Agent context 默认脱敏。需要本地人工排查时可加 `--no-redact` ，但不建议给外部模型使用。

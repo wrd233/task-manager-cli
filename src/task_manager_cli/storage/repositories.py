@@ -113,6 +113,36 @@ class Repository:
         location_id = self.upsert_location(location)
         existing = self._find_existing_object_for_location(obj, location)
         if existing and existing["source_item_id"] != obj.source_item_id:
+            target = self.conn.execute(
+                "SELECT id FROM objects WHERE canonical_source=? AND source_item_id=?",
+                (obj.source_type, obj.source_item_id),
+            ).fetchone()
+            if target and int(target["id"]) != int(existing["id"]):
+                self.conn.execute(
+                    """
+                    UPDATE objects SET
+                        object_type=?,
+                        title=?,
+                        status=?,
+                        canonical_location_id=?,
+                        confidence=?,
+                        created_at=COALESCE(created_at, ?),
+                        last_seen_at=CURRENT_TIMESTAMP,
+                        metadata_json=?
+                    WHERE id=?
+                    """,
+                    (
+                        obj.object_type,
+                        obj.title,
+                        obj.status,
+                        location_id,
+                        obj.confidence,
+                        obj.created_at,
+                        _json(obj.metadata),
+                        int(target["id"]),
+                    ),
+                )
+                return int(target["id"])
             self.conn.execute(
                 """
                 UPDATE objects SET
