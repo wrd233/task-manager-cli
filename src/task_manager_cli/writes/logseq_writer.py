@@ -69,6 +69,14 @@ class LogseqWriter:
         diff = "\n".join(difflib.unified_diff([], [line + "\n" for line in new_lines], fromfile="/dev/null", tofile=str(path)))
         return WritePreview(file_path=path, original_sha256="", new_text="\n".join(new_lines) + "\n", diff=diff)
 
+    def preview_append_page_end(self, file_path: Path, content: str) -> WritePreview:
+        path = Path(file_path).expanduser()
+        self._ensure_inside_graph(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        new_block_lines = self._format_block_lines(content, "")
+        new_lines = lines + new_block_lines
+        return self._preview(path, lines, new_lines)
+
     def preview_append_marker_child(
         self,
         file_path: Path,
@@ -215,9 +223,11 @@ class LogseqWriter:
             if not text:
                 continue
             if text.lstrip().startswith("-"):
-                formatted.append(f"{indent}{text.lstrip()}")
+                formatted.append(f"{indent}{text}")
             elif index == 0:
                 formatted.append(f"{indent}- {text}")
+            elif raw.startswith((" ", "\t")):
+                formatted.append(f"{indent}{text}")
             else:
                 formatted.append(f"{indent}  {text}")
         return formatted or [f"{indent}- "]

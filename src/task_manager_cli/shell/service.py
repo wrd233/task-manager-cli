@@ -16,6 +16,7 @@ from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.ingest.merger import Merger
 from task_manager_cli.output.colors import color_status, color_task_markers, use_color
 from task_manager_cli.projects.tree import LABEL_BY_NODE_TYPE, ProjectTreeService
+from task_manager_cli.projects.lifecycle import ProjectLifecycleService
 from task_manager_cli.proposals.service import ProposalService
 from task_manager_cli.providers.base import DryRunProvider, provider_from_settings
 from task_manager_cli.reviews.service import ReviewSessionService
@@ -121,6 +122,10 @@ class HumanShellService:
                 return self.open(args)
             if command == "find":
                 return self.find(" ".join(args))
+            if command == "project" and args and args[0] == "create":
+                return self.project_create(args[1:])
+            if command == "new" and args and args[0] == "project":
+                return self.project_create(args[1:])
             if command in {"todo", "idea", "mini", "resource"}:
                 preview_only, clean_args = self._extract_preview_flag(args)
                 return self.create_item(command, " ".join(clean_args), preview_only=preview_only)
@@ -170,7 +175,7 @@ class HumanShellService:
             [
                 "Human Shell commands:",
                 "导航: pwd, ls, cd, tree, show, open, find",
-                "创建: todo, idea, mini, resource",
+                "创建: project create, new project, todo, idea, mini, resource",
                 "状态/成果: note, ainote, doing, done, wait, someday, result, noresult",
                 "安全: preview on|off, where, history, undo [op]",
                 "Proposal: proposals, accept, reject, edit, supersede, preview, apply",
@@ -358,11 +363,15 @@ class HumanShellService:
             "notes": ["notes"],
             "done": ["actions"],
             "reviews": ["reviews"],
+            "inbox": ["inbox"],
+            "unplaced": ["unplaced"],
+            "quality": ["quality"],
+            "project-health": ["quality"],
         }
 
         target_sections = filter_to_sections.get(filter_name, [])
         if not target_sections:
-            return f"Unknown filter: {filter_name}. Try: tasks, todo, doing, waiting, done, ideas, resources, mini, nodes, projects, journal, exposed, results, proposals, reviews, all"
+            return f"Unknown filter: {filter_name}. Try: tasks, todo, doing, waiting, done, ideas, resources, mini, nodes, projects, inbox, unplaced, journal, exposed, results, proposals, reviews, all"
 
         # Status filtering for todo/doing/waiting
         status_filter = None
@@ -630,6 +639,42 @@ class HumanShellService:
             lines.append(f"duplicate source-location objects hidden: {duplicate_count}")
         return "\n".join(lines)
 
+    def project_create(self, args: List[str]) -> str:
+        if not args:
+            return 'Usage: project create "项目名" [--template minimal|standard] [--goal "..."] [--enter] [--preview]'
+        template = "standard"
+        goal = None
+        enter = "--enter" in args
+        preview_only = "--preview" in args
+        clean: List[str] = []
+        index = 0
+        while index < len(args):
+            item = args[index]
+            if item == "--template" and index + 1 < len(args):
+                template = args[index + 1]
+                index += 2
+                continue
+            if item == "--goal" and index + 1 < len(args):
+                goal = args[index + 1]
+                index += 2
+                continue
+            if item in {"--enter", "--preview"}:
+                index += 1
+                continue
+            clean.append(item)
+            index += 1
+        name = " ".join(clean).strip()
+        if not name:
+            return 'Usage: project create "项目名"'
+        data = ProjectLifecycleService(self.conn, self.settings).create_project(name, template=template, goal=goal, preview=preview_only)
+        if preview_only:
+            return data["preview_diff"]
+        self.conn.commit()
+        op = self._record_operation(f"project create {name}", "direct_write", f"project:{name}", file_path=data["file_path"], created_file=True)
+        if enter:
+            self.cd(f"/projects/{name}")
+        return f"project created: {name} (op #{op.id})\nundo: undo {op.id}"
+
     def create_item(self, kind: str, text: str, preview_only: bool = False) -> str:
         if not text:
             return f"Usage: {kind} \"text\""
@@ -648,9 +693,19 @@ class HumanShellService:
             return "Cancelled."
         op = self._apply_direct_preview(preview, f"{kind} {text}", target)
         self._resync_light(preview.file_path)
+        self._mark_recent_project_capture(kind, text)
         return f"{kind} written to {target} (op #{op.id})\nundo: undo {op.id}"
 
     def append_marker(self, command: str, args: List[str]) -> str:
+        if self.context.project_ref and not self.context.current_object_id and args and not args[0].isdigit():
+            marker = {"note": "**[注]**", "ainote": "**[AI注]**", "result": "**[成果]**", "noresult": "**[无成果]**"}[command]
+            content = " ".join(args)
+            preview, target = self._preview_project_marker_append(command, f"{marker} {content}".rstrip())
+            if self.context.preview and not self._confirm(self._location_preview(command, preview, target, f"{marker} {content}") + "\n确认写入？ [y/N] "):
+                return "Cancelled."
+            op = self._apply_direct_preview(preview, f"{command} {content}", target)
+            self._resync_light(preview.file_path)
+            return f"{command} appended to project (op #{op.id})"
         if self.context.current_object_id and len(args) >= 1:
             target_ref = str(self.context.current_object_id)
             text_args = args
@@ -989,6 +1044,14 @@ class HumanShellService:
                     return "No shell clarify review to resume."
                 self.context.current_review_id = int(open_review["id"])
             return self._run_clarify_review(self.context.current_review_id, mode=mode)
+        if args and args[0] in {"project", "unplaced", "inbox"} and self.context.project_ref:
+            target = "inbox" if args[0] == "inbox" else "unplaced"
+            data = ProjectLifecycleService(self.conn, self.settings).clarify_project(self.context.project_ref, target=target, mode=mode, provider_name=self.context.provider)
+            self.conn.commit()
+            lines = [f"Project clarify completed: {data['project']} target={target}"]
+            for proposal in data.get("proposals", []):
+                lines.append(f"#{proposal['id']} {proposal['risk']} {proposal['proposal_type']} - {proposal['title']}")
+            return "\n".join(lines)
         ids = self._candidate_ids_for_context(limit=10)
         if not ids:
             return "No clarify candidates in this context."
@@ -1127,6 +1190,19 @@ class HumanShellService:
             if not self.context.current_review_id:
                 return "No current clarify review."
             return self.clarify(["eval"])
+        if name in {"project", "health"} and self.context.project_ref:
+            data = ProjectLifecycleService(self.conn, self.settings).project_health(self.context.project_ref)
+            return "\n".join(
+                [
+                    f"# Project Health: {data['project']['title']}",
+                    f"- health_score: {data['health_score']}",
+                    f"- active_tasks_count: {data['active_tasks_count']}",
+                    f"- waiting_count: {data['waiting_count']}",
+                    f"- unplaced_count: {data['unplaced_count']}",
+                    f"- pending_proposals_count: {data['pending_proposals_count']}",
+                    f"- tree_node_count: {data['tree_node_count']}",
+                ]
+            )
         if name == "all":
             tree = service.project_tree_quality()
             mini = service.mini_project_quality()
@@ -1141,7 +1217,7 @@ class HumanShellService:
                     f"- duplicate proposals: {membership['duplicate_proposal_count']}",
                 ]
             )
-        return "Usage: quality project-tree|mini|membership|clarify|all"
+        return "Usage: quality project|health|project-tree|mini|membership|clarify|all"
 
     def _preview_for_context(self, kind: str, content: str) -> Tuple[WritePreview, str]:
         path = self.context.path
@@ -1162,7 +1238,7 @@ class HumanShellService:
         return self._preview_append_file_end(target, f"{content} #inbox"), f"{target} (fallback inbox)"
 
     def _preview_project_append(self, kind: str, content: str) -> Tuple[WritePreview, str]:
-        marker_by_kind = {"todo": "具体事务", "idea": "想法", "mini": "小任务", "resource": "资源"}
+        marker_by_kind = {"todo": "项目收件箱", "idea": "想法", "mini": "小任务", "resource": "资源"}
         project = self._object(self.context.project_ref)
         file_path = Path(project["file_path"])
         target_marker = marker_by_kind.get(kind, "具体事务")
@@ -1179,6 +1255,17 @@ class HumanShellService:
         new_text = temp_text + child
         diff = self._diff(file_path, file_path.read_text(encoding="utf-8"), new_text)
         return WritePreview(file_path=file_path, original_sha256=self.writer.sha256(file_path), new_text=new_text, diff=diff, line_start=line_start), f"{file_path}:{line_start}"
+
+    def _preview_project_marker_append(self, command: str, content: str) -> Tuple[WritePreview, str]:
+        marker_by_command = {"result": "成果", "noresult": "成果", "note": "反思", "ainote": "反思"}
+        project = self._object(self.context.project_ref)
+        file_path = Path(project["file_path"])
+        target_marker = marker_by_command.get(command, "项目收件箱")
+        parsed = parse_logseq_file(file_path, project.get("title"))
+        for block in parsed.blocks:
+            if semantic_marker(block.raw) == target_marker:
+                return self.writer.preview_append_child(file_path, content, block_uuid=block.uuid, line_start=block.line_number), f"{file_path}:{block.line_number}"
+        return self._preview_project_append("todo", content)
 
     def _preview_append_file_end(self, file_path: Path, content: str) -> WritePreview:
         path = Path(file_path)
@@ -1427,6 +1514,41 @@ class HumanShellService:
             self.repo.update_object_after_writeback(changed_object_id, dirty_reason="shell_writeback")
         self.conn.commit()
 
+    def _mark_recent_project_capture(self, kind: str, text: str) -> None:
+        if not self.context.project_ref or self.context.project_node_id:
+            return
+        object_type = {"todo": "task", "idea": "idea", "mini": "mini_project", "resource": "reference"}.get(kind)
+        if not object_type:
+            return
+        try:
+            project = self._object(self.context.project_ref)
+        except Exception:
+            return
+        row = self.conn.execute(
+            """
+            SELECT o.id, o.metadata_json
+            FROM objects o
+            JOIN locations l ON l.id=o.canonical_location_id
+            WHERE o.object_type=? AND o.title=? AND l.file_path=?
+            ORDER BY o.id DESC LIMIT 1
+            """,
+            (object_type, text, project.get("file_path")),
+        ).fetchone()
+        if not row:
+            return
+        metadata = json.loads(row["metadata_json"] or "{}")
+        metadata.update(
+            {
+                "belongs_to_project": True,
+                "belongs_to_node": False,
+                "placement_status": "unplaced",
+                "capture_context": "project_root",
+                "capture_kind": kind,
+            }
+        )
+        self.conn.execute("UPDATE objects SET metadata_json=? WHERE id=?", (json.dumps(metadata, ensure_ascii=False, sort_keys=True), int(row["id"])))
+        self.conn.commit()
+
     def _has_write_context(self) -> bool:
         return bool(self.context.project_ref or self.context.project_node_id or self.context.mini_ref)
 
@@ -1471,6 +1593,8 @@ class HumanShellService:
             project = self.repo.get_object(project_id)
             if len(parts) == 2:
                 return {"path": f"/projects/{project['title']}", "project_ref": str(project_id)}
+            if len(parts) == 3 and parts[2] == "inbox":
+                return {"path": f"/projects/{project['title']}/inbox", "project_ref": str(project_id)}
             if len(parts) == 3 and parts[2] in set(LABEL_BY_NODE_TYPE.values()):
                 return {"path": f"/projects/{project['title']}/{parts[2]}", "project_ref": str(project_id)}
             node = self._match_project_node(str(project_id), parts[2:])

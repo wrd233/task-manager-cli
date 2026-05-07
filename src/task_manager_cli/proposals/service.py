@@ -26,10 +26,16 @@ MEDIUM_RISK = {
     ProposalType.LOGSEQ_TASK_MARKER.value,
     ProposalType.CREATE_MINI_PROJECT.value,
     ProposalType.RESULT_MARKER.value,
+    ProposalType.CREATE_PROJECT.value,
     ProposalType.CREATE_PROJECT_NODE.value,
     ProposalType.PROMOTE_TO_MINI_PROJECT.value,
     ProposalType.APPEND_PROJECT_NODE_REF.value,
+    ProposalType.APPEND_BLOCK_REF_TO_NODE.value,
     ProposalType.CREATE_MINI_PROJECT_NODE.value,
+    ProposalType.CONVERT_IDEA_TO_TASK.value,
+    ProposalType.MARK_OBJECT_AS_RESOURCE.value,
+    ProposalType.MARK_OBJECT_AS_RESULT.value,
+    ProposalType.ARCHIVE_PROJECT_ITEM.value,
 }
 HIGH_RISK = {
     ProposalType.DELETE.value,
@@ -47,10 +53,12 @@ RELATION_PROPOSAL_TYPES = {
     ProposalType.LINK_IDEA_TO_PROJECT.value,
     ProposalType.LINK_RESOURCE_TO_PROJECT.value,
     ProposalType.ATTACH_TO_MINI_PROJECT.value,
+    ProposalType.LINK_OBJECT_TO_NODE.value,
 }
 APPEND_CHILD_PROPOSAL_TYPES = {
     ProposalType.APPEND_PROJECT_NODE_REF.value,
     ProposalType.CREATE_MINI_PROJECT_NODE.value,
+    ProposalType.APPEND_BLOCK_REF_TO_NODE.value,
 }
 
 
@@ -204,6 +212,18 @@ class ProposalService:
             proposal["file_sha256"] = preview.original_sha256
             self._event(proposal_id, "previewed", "user", {"file_path": str(preview.file_path), "line_start": preview.line_start, "block_uuid": preview.block_uuid})
             return proposal
+        if proposal["proposal_type"] == ProposalType.CREATE_PROJECT_NODE.value:
+            preview = self._create_project_node_preview(proposal)
+            proposal["preview_diff"] = preview.diff
+            proposal["file_sha256"] = preview.original_sha256
+            self._event(proposal_id, "previewed", "user", {"file_path": str(preview.file_path), "line_start": preview.line_start, "block_uuid": preview.block_uuid})
+            return proposal
+        if proposal["proposal_type"] == ProposalType.CREATE_PROJECT.value:
+            preview = self._create_project_preview(proposal)
+            proposal["preview_diff"] = preview.diff
+            proposal["file_sha256"] = preview.original_sha256
+            self._event(proposal_id, "previewed", "user", {"file_path": str(preview.file_path)})
+            return proposal
         if proposal["proposal_type"] == ProposalType.LOGSEQ_TASK_MARKER.value:
             preview = self._task_marker_preview(proposal)
             proposal["preview_diff"] = preview.diff
@@ -330,6 +350,37 @@ class ProposalService:
             preview = self._append_child_preview(proposal)
             backup = self._writer().apply(preview, preview.original_sha256, self._backup_dir())
             applied_record = {"file_path": str(preview.file_path), "backup_path": str(backup), "line_start": preview.line_start, "block_uuid": preview.block_uuid}
+        elif proposal["proposal_type"] == ProposalType.CREATE_PROJECT_NODE.value:
+            self._ensure_write_apply_allowed(confirmed)
+            self._ensure_previewed(proposal_id)
+            preview = self._create_project_node_preview(proposal)
+            backup = self._writer().apply(preview, preview.original_sha256, self._backup_dir())
+            applied_record = {"file_path": str(preview.file_path), "backup_path": str(backup), "line_start": preview.line_start, "block_uuid": preview.block_uuid}
+        elif proposal["proposal_type"] == ProposalType.CREATE_PROJECT.value:
+            self._ensure_write_apply_allowed(confirmed)
+            self._ensure_previewed(proposal_id)
+            preview = self._create_project_preview(proposal)
+            backup = self._writer().apply(preview, preview.original_sha256, self._backup_dir())
+            backup_value = str(backup) if str(backup) not in {"", "."} else None
+            applied_record = {"file_path": str(preview.file_path), "backup_path": backup_value, "created_file": True}
+        elif proposal["proposal_type"] == ProposalType.MARK_OBJECT_AS_RESULT.value:
+            payload = proposal["payload"]
+            annotation_id = AnnotationService(self.conn).add(
+                str(proposal["target_object_id"]) if proposal["target_object_id"] else None,
+                payload.get("content") or payload.get("result") or "Marked as project result",
+                author="agent",
+                annotation_type="result_candidate",
+            )
+            applied_record = {"annotation_id": annotation_id, "internal_only": True}
+        elif proposal["proposal_type"] in {ProposalType.CONVERT_IDEA_TO_TASK.value, ProposalType.MARK_OBJECT_AS_RESOURCE.value, ProposalType.ARCHIVE_PROJECT_ITEM.value}:
+            payload = proposal["payload"]
+            annotation_id = AnnotationService(self.conn).add(
+                str(proposal["target_object_id"]) if proposal["target_object_id"] else None,
+                payload.get("content") or proposal["title"],
+                author="agent",
+                annotation_type=proposal["proposal_type"],
+            )
+            applied_record = {"annotation_id": annotation_id, "internal_only": True}
         else:
             raise TaskManagerError(f"Apply is not implemented for proposal type: {proposal['proposal_type']}")
         self.conn.execute(
@@ -356,6 +407,11 @@ class ProposalService:
         elif record.get("backup_path") and record.get("file_path"):
             self._writer().restore_backup(Path(record["backup_path"]), Path(record["file_path"]))
             rollback_record = {"restored_backup_path": record["backup_path"], "file_path": record["file_path"]}
+        elif record.get("created_file") and record.get("file_path"):
+            target = Path(record["file_path"])
+            self._writer()._ensure_inside_graph(target)
+            target.unlink(missing_ok=True)
+            rollback_record = {"deleted_file_path": record["file_path"]}
         else:
             raise TaskManagerError("Proposal does not contain enough rollback information.")
         self.conn.execute(
@@ -389,7 +445,61 @@ class ProposalService:
     def _append_child_preview(self, proposal: Dict[str, Any]):
         payload = proposal["payload"]
         file_path, block_uuid, line_start = self._target_location(proposal, payload)
+        if proposal["proposal_type"] == ProposalType.APPEND_BLOCK_REF_TO_NODE.value:
+            content = payload.get("content")
+            if not content:
+                block_ref = payload.get("block_ref") or payload.get("source_block_uuid")
+                if not block_ref and payload.get("source_object_id"):
+                    source = self.repo.get_object(int(payload["source_object_id"]))
+                    block_ref = (source or {}).get("block_uuid")
+                content = f"(({block_ref}))" if block_ref else ""
+            return self._writer().preview_append_child(file_path, content, block_uuid=block_uuid, line_start=line_start)
         return self._writer().preview_append_child(file_path, payload.get("content", ""), block_uuid=block_uuid, line_start=line_start)
+
+    def _create_project_preview(self, proposal: Dict[str, Any]):
+        payload = proposal["payload"]
+        page_name = payload.get("page_name") or payload.get("project_name") or proposal["title"]
+        content = payload.get("content")
+        if content is None:
+            from task_manager_cli.projects.lifecycle import project_template
+
+            content = project_template(payload.get("template", "standard"), goal=payload.get("goal"))
+        return self._writer().preview_create_page(page_name, content)
+
+    def _create_project_node_preview(self, proposal: Dict[str, Any]):
+        payload = proposal["payload"]
+        project_id = payload.get("target_project_id") or proposal.get("target_object_id")
+        if not project_id:
+            raise ConfigError("create_project_node requires target_project_id.")
+        project = self.repo.get_object(int(project_id))
+        if not project or not project.get("file_path"):
+            raise ConfigError("create_project_node requires a project page file.")
+        node_type = payload.get("node_type") or "specific_work"
+        marker = _marker_for_node_type(node_type)
+        title = payload.get("node_title") or payload.get("title") or "新节点"
+        content = f"**[{marker}]** {title}".rstrip()
+        parent_node_id = payload.get("parent_node_id")
+        if parent_node_id:
+            return self._writer().preview_append_child(Path(project["file_path"]), content, line_start=self._node_line(project, parent_node_id))
+        section = payload.get("section")
+        if section:
+            section_marker = section if section.startswith("[") else f"[{section}]"
+            try:
+                return self._writer().preview_append_page_section(Path(project["file_path"]), section_marker, content)
+            except WriteError:
+                pass
+        return self._writer().preview_append_page_end(Path(project["file_path"]), content)
+
+    def _node_line(self, project: Dict[str, Any], node_id: str) -> int:
+        from task_manager_cli.projects.tree import ProjectTreeService
+
+        tree = ProjectTreeService(self.conn, self.settings).build(str(project["id"]), detail=True)
+        flat: List[Dict[str, Any]] = []
+        ProjectTreeService(self.conn, self.settings)._flatten(tree.get("tree", []), flat)
+        for node in flat:
+            if node.get("id") == node_id:
+                return int(node["location"]["line_start"])
+        raise NotFoundError(f"Project node not found: {node_id}")
 
     def _apply_relation_proposal(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
         payload = proposal["payload"]
@@ -410,6 +520,7 @@ class ProposalService:
             "proposal_id": proposal["id"],
             "proposal_type": proposal["proposal_type"],
             "target_project_node_id": payload.get("target_project_node_id"),
+            "placement_status": payload.get("placement_status"),
             "source_evidence": payload.get("source_evidence", []),
             "writeback_suggested": bool(payload.get("writeback_suggested")),
         }
@@ -461,6 +572,12 @@ class ProposalService:
         file_path = payload.get("file_path")
         block_uuid = payload.get("block_uuid")
         line_start = payload.get("line_start")
+        if payload.get("target_project_id") and payload.get("target_project_node_id") and not file_path:
+            project = self.repo.get_object(int(payload["target_project_id"]))
+            if not project:
+                raise ConfigError("Target project not found for project node writeback.")
+            file_path = project.get("file_path")
+            line_start = self._node_line(project, payload["target_project_node_id"])
         if proposal.get("target_object_id") and not file_path:
             obj = self.repo.get_object(int(proposal["target_object_id"]))
             file_path = obj.get("file_path")
@@ -579,3 +696,20 @@ def classify_risk(proposal_type: str, payload: Optional[Dict[str, Any]] = None) 
     if proposal_type in LOW_RISK:
         return ProposalRisk.LOW.value
     return ProposalRisk.MEDIUM.value
+
+
+def _marker_for_node_type(node_type: str) -> str:
+    mapping = {
+        "objective": "目标",
+        "goal": "目标",
+        "workflow": "工作流",
+        "milestone": "里程碑",
+        "mini_project": "小任务",
+        "specific_work": "具体事务",
+        "resource": "资源",
+        "result": "成果",
+        "idea": "想法",
+        "reflection": "反思",
+        "project_inbox": "项目收件箱",
+    }
+    return mapping.get(node_type, node_type or "具体事务")

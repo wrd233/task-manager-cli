@@ -10,6 +10,8 @@ tm agent task 12 --format json
 tm context 12 --format json
 tm agent today-context --days 14 --format json
 tm agent project-context 项目-韩国旅行 --format markdown
+tm agent project-pack 项目-韩国旅行 --format json
+tm agent project-restructure-pack 项目-韩国旅行 --format json
 tm agent inbox-context --days 30 --format json
 ```
 
@@ -79,6 +81,39 @@ tm agent project-node <node-id> --format json
 该命令输出 node metadata、ancestor context、raw subtree、source location 和 project id/name，不写回
 Logseq。`tm agent today-context` 表示今日事实；`tm agent dashboard-context` 预留为全局态势接口。
 
+Project Lifecycle Agent Pack：
+
+```bash
+tm agent project-pack <project> --format json|markdown
+tm agent project-restructure-pack <project> --format json|markdown
+```
+
+`project-pack` 包含 project metadata、semantic tree、project inbox、unplaced objects、tasks、ideas、resources、results、mini projects、recent records、project health、constraints 和 available operations。
+
+`project-restructure-pack` 包含 semantic tree、unplaced objects、project health、node summaries、raw evidence references、proposal schema、allowed proposal types、forbidden operations 和 expected output schema。默认不会输出完整项目页原文；Agent 如需证据，应调用 `tm agent project-node <node-id> --project <project>`。
+
+Project restructure output 必须是 JSON object：
+
+```json
+{
+  "summary": "",
+  "questions_for_user": [],
+  "proposed_nodes": [],
+  "object_mappings": [],
+  "proposal_candidates": [],
+  "risks": [],
+  "unplaced_remaining": []
+}
+```
+
+使用：
+
+```bash
+tm project restructure <project> --from-agent-output output.json
+```
+
+该命令只生成 Proposal，不 apply。
+
 ## 写入批注
 
 ```bash
@@ -124,6 +159,8 @@ tm write apply 1 --yes
 
 Agent 不应直接任意修改 Logseq。第一版仅允许 append-only：追加子块、追加到 page section、创建新
 page。
+
+Lifecycle Proposal 类型包括 `create_project`、`create_project_node`、`link_object_to_node`、`append_block_ref_to_node`、`promote_to_mini_project`、`convert_idea_to_task`、`mark_object_as_resource`、`mark_object_as_result`、`archive_project_item`。其中安全 apply 当前只覆盖 append-only / internal-only 类型；`move_original_block`、`delete_block`、`merge_blocks`、`mass_reorder` 禁止直接 apply。
 
 ## 隐私默认值
 

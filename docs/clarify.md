@@ -1,5 +1,26 @@
 # Clarify
 
+## Project Clarify
+
+Project Lifecycle 增加项目级 clarify：
+
+```bash
+tm project clarify <project> --target unplaced --mode quick|standard|deep|ai
+tm project clarify <project> --target inbox
+```
+
+Human Shell:
+
+```text
+clarify project
+clarify unplaced
+clarify inbox
+```
+
+处理范围包括 project inbox、unplaced tasks、unplaced ideas、unplaced resources、unplaced results 和模糊 project membership candidates。Provider 可以返回 `questions_for_user` 和 `proposal_candidates`，但结果只能转为 suggested Proposal，不直接写回 Logseq。
+
+常见输出类型：`link_object_to_node`、`convert_idea_to_task`、`promote_to_mini_project`、`mark_object_as_resource`、`mark_object_as_result`、`archive_project_item`、`create_project_node`。
+
 Clarify
 是做题式审核流程：用户主动选择一批候选条目，系统逐条展示摘要并提出基础问题，用户回答后交给
 provider 生成 Proposal。Clarify 不直接改事实，也不直接写回 Logseq。

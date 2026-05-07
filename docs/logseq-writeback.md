@@ -1,5 +1,36 @@
 # Logseq Writeback
 
+## Project Lifecycle Writeback
+
+Project Lifecycle 写回遵循强安全边界：
+
+- Agent / Provider 不得直接修改 Logseq。
+- 高风险结构变更必须走 Proposal。
+- 不自动删除、移动、合并、重排原始 Logseq 块。
+- 所有写回必须 preview / backup / rollback。
+- 无法安全实现的高风险 apply 只允许生成 Proposal，不允许 apply。
+
+当前安全写回：
+
+- `create_project`：创建新页面，不覆盖已有页面。
+- `create_project_node`：append 到项目页、目标 section 或 parent node。
+- `append_block_ref_to_node`：append block ref，不移动原始 block。
+- project capture：Shell 在项目上下文内 append 到 `[项目收件箱]`、`[想法]`、`[资源]`、`[成果]`、`[反思]`、`[小任务]`。
+
+Internal-only apply：
+
+- `link_object_to_node` 更新 SQLite relation。
+- `promote_to_mini_project` / `mark_object_as_result` 写内部 annotation。
+
+典型命令：
+
+```bash
+tm proposal show <id> --preview
+tm proposal accept <id>
+tm proposal apply <id> --yes
+tm proposal rollback <id>
+```
+
 本轮 Logseq 写回只提供安全骨架，不做大规模移动、重排、项目树重写或原文改写。所有写回必须由
 Proposal 驱动，并且必须明确目标 source / location。
 

@@ -203,11 +203,12 @@ class LogseqAdapter:
             if block.is_pure_reference:
                 self._extract_journal_exposure(block, parsed, result)
                 continue
-            if self._under_resource_context(block):
+            if self._under_resource_context(block) and semantic_marker(block.raw) != "资源":
                 continue
 
             self._extract_task(block, parsed, result, page_project_source_id)
             self._extract_idea(block, parsed, result, page_project_source_id)
+            self._extract_resource(block, parsed, result, page_project_source_id)
             self._extract_mini_project(block, parsed, result, page_project_source_id)
 
     def _extract_task(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
@@ -329,6 +330,43 @@ class LogseqAdapter:
             result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.9, {"rule": "mini_project_under_project_page"}))
         else:
             self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="mini_project_page_ref")
+
+    def _extract_resource(self, block: LogseqBlock, parsed: ParsedLogseqFile, result: AdapterResult, page_project_source_id: Optional[str]) -> None:
+        if semantic_marker(block.raw) != "资源":
+            return
+        source_id = self._block_source_id(block)
+        journal_date = journal_date_from_path(parsed.file_path)
+        title = semantic_marker_content(block.raw)
+        if not title:
+            return
+        resource = ActionObject(
+            object_type=ObjectType.REFERENCE.value,
+            title=title,
+            source_type=self.source_type,
+            source_item_id=source_id,
+            status="captured",
+            created_at=journal_date,
+            created_at_source="journal_date" if journal_date else "first_seen_at",
+            confidence=0.86,
+            metadata={
+                "page_name": parsed.page_name,
+                "section_markers": block.section_markers(),
+                "semantic_marker": "资源",
+                "semantic_tags": semantic_tags(block.raw),
+                "page_refs": block.page_refs,
+                "extraction_rule": "logseq_resource_marker",
+            },
+        )
+        result.objects.append(resource)
+        result.links.append(ObjectRecordLink(source_id, source_id, "definition"))
+        for child in block.descendants():
+            if child.properties.get("__property_block__") == "true":
+                continue
+            result.links.append(ObjectRecordLink(source_id, self._block_source_id(child), self._role_for_child(child)))
+        if page_project_source_id:
+            result.relations.append(Relation(source_id, page_project_source_id, RelationType.BELONGS_TO.value, 0.8, {"rule": "resource_under_project_page"}))
+        else:
+            self._add_page_ref_project_relations(block, source_id, result, confidence=0.75, rule="resource_page_ref")
 
     def _add_page_ref_project_relations(self, block: LogseqBlock, source_id: str, result: AdapterResult, confidence: float, rule: str) -> None:
         for ref in block.page_refs:

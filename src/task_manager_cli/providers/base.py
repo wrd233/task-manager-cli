@@ -43,6 +43,13 @@ ALLOWED_PROVIDER_TYPES = {
     "link_resource_to_project",
     "promote_to_mini_project",
     "attach_to_mini_project",
+    "create_project_node",
+    "link_object_to_node",
+    "append_block_ref_to_node",
+    "convert_idea_to_task",
+    "mark_object_as_resource",
+    "mark_object_as_result",
+    "archive_project_item",
 }
 ALLOWED_RISKS = {"low", "medium", "high"}
 TYPE_MAP = {
@@ -59,6 +66,13 @@ TYPE_MAP = {
     "link_resource_to_project": "link_resource_to_project",
     "promote_to_mini_project": "promote_to_mini_project",
     "attach_to_mini_project": "attach_to_mini_project",
+    "create_project_node": "create_project_node",
+    "link_object_to_node": "link_object_to_node",
+    "append_block_ref_to_node": "append_block_ref_to_node",
+    "convert_idea_to_task": "convert_idea_to_task",
+    "mark_object_as_resource": "mark_object_as_resource",
+    "mark_object_as_result": "mark_object_as_result",
+    "archive_project_item": "archive_project_item",
 }
 
 

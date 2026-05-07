@@ -15,6 +15,7 @@ from task_manager_cli.ingest.sync import SyncService
 from task_manager_cli.output.formatters import format_output, objects_table, to_json
 from task_manager_cli.privacy.redactor import Redactor
 from task_manager_cli.projects.membership import ProjectMembershipService
+from task_manager_cli.projects.lifecycle import ProjectLifecycleService
 from task_manager_cli.projects.quality import ProjectQualityService
 from task_manager_cli.projects.tree import ProjectTreeService, project_tree_json
 from task_manager_cli.proposals.service import ProposalService
@@ -142,6 +143,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--detail", action="store_true")
     p.add_argument("--format", choices=["json", "markdown"], default="json")
     p.set_defaults(handler=cmd_agent_project_tree)
+    p = agent_sub.add_parser("project-pack", help="Export full project lifecycle pack for an external agent.")
+    p.add_argument("project")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_agent_project_pack)
+    p = agent_sub.add_parser("project-restructure-pack", help="Export safe project restructure pack for an external agent.")
+    p.add_argument("project")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_agent_project_restructure_pack)
     p = agent_sub.add_parser("project-node", help="Export readonly raw evidence for one project semantic node.")
     p.add_argument("node")
     p.add_argument("--project", help="Optional project id or title; otherwise scan projects for the node id.")
@@ -212,6 +221,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = report_sub.add_parser("membership-quality", help="Show project membership quality diagnostics.")
     p.add_argument("--format", choices=["json", "markdown"], default="markdown")
     p.set_defaults(handler=cmd_report_membership_quality)
+    p = report_sub.add_parser("project-health", help="Show one project lifecycle health report.")
+    p.add_argument("project")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_report_project_health)
 
     view = sub.add_parser("view", help="Short human-readable views.")
     view_sub = view.add_subparsers(dest="view_command")
@@ -243,6 +256,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     project = sub.add_parser("project", help="Project tree and membership commands.")
     project_sub = project.add_subparsers(dest="project_command")
+    p = project_sub.add_parser("create", help="Create a Logseq project page and internal project object.")
+    p.add_argument("name")
+    p.add_argument("--template", choices=["minimal", "standard"], default="standard")
+    p.add_argument("--goal")
+    p.add_argument("--enter", action="store_true", help="Print the shell path to enter after creation.")
+    p.add_argument("--preview", action="store_true")
+    p.set_defaults(handler=cmd_project_create)
     p = project_sub.add_parser("tree", help="Show readonly project tree.")
     p.add_argument("project")
     p.add_argument("--detail", action="store_true")
@@ -266,6 +286,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("object")
     p.add_argument("--reason")
     p.set_defaults(handler=cmd_project_promote_mini)
+    p = project_sub.add_parser("inbox", help="List project inbox items.")
+    p.add_argument("project")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_project_inbox)
+    p = project_sub.add_parser("unplaced", help="List project items not assigned to a semantic node.")
+    p.add_argument("project")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_project_unplaced)
+    p = project_sub.add_parser("clarify", help="Clarify project inbox/unplaced items into proposals.")
+    p.add_argument("project")
+    p.add_argument("--target", choices=["unplaced", "inbox"], default="unplaced")
+    p.add_argument("--mode", choices=["quick", "standard", "deep", "ai"], default="quick")
+    p.add_argument("--provider", default="mock")
+    p.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    p.set_defaults(handler=cmd_project_clarify_lifecycle)
+    p = project_sub.add_parser("restructure", help="Turn agent output into safe project restructure proposals.")
+    p.add_argument("project")
+    p.add_argument("--from-agent-output")
+    p.add_argument("--provider", choices=["mock", "deepseek"], default=None)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--format", choices=["json", "markdown"], default="json")
+    p.set_defaults(handler=cmd_project_restructure)
 
     debug = sub.add_parser("debug", help="Debug Logseq parsing and storage.")
     debug_sub = debug.add_subparsers(dest="debug_command")
@@ -706,6 +748,22 @@ def cmd_agent_project_tree(args) -> str:
     return project_tree_json(data) if args.format == "json" else service.render_markdown(data, detail=args.detail)
 
 
+def cmd_agent_project_pack(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.project_pack(args.project)
+    return to_json(data) if args.format == "json" else service.markdown_pack(data)
+
+
+def cmd_agent_project_restructure_pack(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.restructure_pack(args.project)
+    return to_json(data) if args.format == "json" else service.markdown_pack(data)
+
+
 def cmd_agent_project_node(args) -> str:
     settings = _settings()
     conn = _conn(settings)
@@ -861,6 +919,36 @@ def cmd_report_membership_quality(args) -> str:
     return to_json(data) if args.format == "json" else service.markdown(data)
 
 
+def cmd_report_project_health(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.project_health(args.project)
+    return to_json(data) if args.format == "json" else _project_health_markdown(data)
+
+
+def _project_health_markdown(data: Dict[str, Any]) -> str:
+    project = data.get("project", {})
+    lines = [f"# Project Health: {project.get('title')}", ""]
+    for key in (
+        "health_score",
+        "active_tasks_count",
+        "waiting_count",
+        "unplaced_count",
+        "ideas_count",
+        "resources_count",
+        "results_count",
+        "done_without_result_count",
+        "pending_proposals_count",
+        "open_reviews_count",
+        "tree_depth",
+        "tree_node_count",
+        "last_activity",
+    ):
+        lines.append(f"- `{key}`: `{data.get(key)}`")
+    return "\n".join(lines) + "\n"
+
+
 def cmd_view_today(args) -> str:
     return _human_view_service().today(limit=args.limit, detail=args.detail)
 
@@ -880,6 +968,17 @@ def cmd_project_tree(args) -> str:
     tree = service.build(args.project, detail=args.detail)
     color = False if getattr(args, "no_color", False) else None
     return project_tree_json(tree) if args.format == "json" else service.render_markdown(tree, detail=args.detail, color=color)
+
+
+def cmd_project_create(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.create_project(args.name, template=args.template, goal=args.goal, preview=args.preview)
+    conn.commit()
+    if args.enter and not args.preview:
+        data["enter_path"] = f"/projects/{args.name}"
+    return to_json(data)
 
 
 def cmd_project_propose_membership(args) -> str:
@@ -902,6 +1001,65 @@ def cmd_project_promote_mini(args) -> str:
     proposal_id = ProjectMembershipService(conn, ProposalService(conn, settings)).propose_promote_to_mini_project(args.object, reason=args.reason)
     conn.commit()
     return to_json({"proposal_id": proposal_id, "status": "suggested"})
+
+
+def cmd_project_inbox(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.project_inbox(args.project)
+    return to_json(data) if args.format == "json" else _project_items_markdown("Project Inbox", data)
+
+
+def cmd_project_unplaced(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.unplaced(args.project)
+    return to_json(data) if args.format == "json" else _project_items_markdown("Unplaced Project Items", data)
+
+
+def cmd_project_clarify_lifecycle(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    data = service.clarify_project(args.project, target=args.target, mode=args.mode, provider_name=args.provider)
+    conn.commit()
+    return to_json(data) if args.format == "json" else _project_clarify_markdown(data)
+
+
+def cmd_project_restructure(args) -> str:
+    settings = _settings()
+    conn = _conn(settings)
+    service = ProjectLifecycleService(conn, settings)
+    if args.from_agent_output:
+        data = service.proposals_from_agent_output(args.project, Path(args.from_agent_output))
+    elif args.provider == "mock":
+        data = service.mock_restructure(args.project, dry_run=args.dry_run)
+    else:
+        raise ValueError("project restructure requires --from-agent-output or --provider mock.")
+    conn.commit()
+    return to_json(data) if args.format == "json" else _project_clarify_markdown(data)
+
+
+def _project_items_markdown(title: str, items: list) -> str:
+    lines = [f"# {title}", ""]
+    if not items:
+        lines.append("- none")
+    for item in items:
+        lines.append(f"- #{item['id']} `{item['object_type']}` `{item.get('placement_status')}` {item['title']}")
+    return "\n".join(lines) + "\n"
+
+
+def _project_clarify_markdown(data: Dict[str, Any]) -> str:
+    lines = [f"# Project Lifecycle Proposals: {data.get('project')}", ""]
+    if "candidate_count" in data:
+        lines.append(f"- candidates: `{data.get('candidate_count')}`")
+    for proposal in data.get("proposals", []):
+        lines.append(f"- #{proposal['id']} `{proposal['proposal_type']}` `{proposal['risk']}` {proposal['title']}")
+    if not data.get("proposals"):
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
 
 
 def cmd_view_tasks(args) -> str:

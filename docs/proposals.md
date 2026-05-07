@@ -1,5 +1,36 @@
 # Proposals
 
+## Project Lifecycle Proposals
+
+Project Lifecycle 使用同一套 Proposal 生命周期：`suggested -> accepted -> applied -> rolled_back`。Agent / Provider 只能创建 Proposal，不能直接修改 Logseq。
+
+新增类型：
+
+- `create_project`
+- `create_project_node`
+- `link_object_to_node`
+- `append_block_ref_to_node`
+- `convert_idea_to_task`
+- `promote_to_mini_project`
+- `mark_object_as_resource`
+- `mark_object_as_result`
+- `archive_project_item`
+
+当前可安全 apply 的类型是 append-only 或 internal-only：`create_project`、`create_project_node`、`link_object_to_node`、`append_block_ref_to_node`、`promote_to_mini_project`、`mark_object_as_result`。高风险结构操作如 `move_original_block`、`delete_block`、`merge_blocks`、`mass_reorder` 不提供直接 apply。
+
+常用流程：
+
+```bash
+tm project restructure <project> --from-agent-output output.json
+tm proposal list
+tm proposal show <id> --preview
+tm proposal accept <id>
+tm proposal apply <id> --yes
+tm proposal rollback <id>
+```
+
+写回规则：创建节点只追加到项目页或目标 section；link object 只更新内部 relation；append ref 只追加 block ref，不移动原始块；promote / mark result 默认写内部 annotation。所有 Logseq 写回都必须有 preview、backup 和 rollback 记录。
+
 Proposal 是结构化变更建议，不是普通批注。批注表达“有人留下了一段说明或判断”；Proposal
 表达“系统建议对某个对象、关系、状态或 Logseq 位置做一个可审核、可应用、可回滚的变更”。
 

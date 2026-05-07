@@ -1,5 +1,41 @@
 # Human Shell
 
+## Project Lifecycle Commands
+
+Human Shell 现在支持项目生命周期闭环：
+
+```text
+cd /projects
+project create "测试项目" --template standard --goal "形成第一版成果" --enter
+todo "先记录一个任务"
+idea "一个还不成熟的想法"
+resource "一个参考资料"
+result "形成第一版成果"
+ls inbox
+ls unplaced
+clarify unplaced
+proposals
+accept 1
+preview 1
+apply 1
+tree
+quality project
+undo
+```
+
+`project create` / `new project` 创建项目页和内部 Project object，不覆盖已有页面，支持 `--preview` 和最近操作 `undo`。在项目 root 下 capture 的对象会 append-only 写入对应 section；没有明确 semantic node 时视为 project-level / unplaced，不进入结构化 `tree`。
+
+Dashboard 视角：
+
+```text
+cd /dashboard
+ls quality
+ls unplaced
+ls project-health
+```
+
+安全边界：Shell 的直接写回只做追加或受限块修改；Proposal apply 仍要求 preview、backup、rollback。移动、删除、合并、重排原始 Logseq 块不由 Shell 自动执行。
+
 Human Shell 是 `task-manager-cli` 面向用户本人日常高频操作的 REPL 行动工作台。它建立在现有 `tm`
 service 之上，不替代底层命令，也不改变 Agent / Provider 的 Proposal 审核边界。
 

@@ -409,6 +409,12 @@ def _inventory_project_context(conn, shell_context, repo: Repository, settings) 
 
     # Project-level: get all child objects
     project_children = _get_project_children(conn, repo, project_id)
+    inbox_children = [item for item in project_children if _is_project_inbox_child(item)]
+    unplaced_children = [item for item in project_children if _is_project_unplaced_child(item)]
+    if inbox_children:
+        sections.append(_section("inbox", "Project Inbox", [_child_item(row) for row in inbox_children]))
+    if unplaced_children:
+        sections.append(_section("unplaced", "Unplaced Items", [_child_item(row) for row in unplaced_children]))
     _add_child_sections(sections, project_children, repo)
 
     return {
@@ -674,6 +680,27 @@ def _add_child_sections(sections: List[dict], children: List[dict], repo: Reposi
         sections.append(_section("mini_projects", "Mini Projects", minis))
 
 
+def _child_item(row: dict) -> dict:
+    return _item(
+        row["id"],
+        row.get("object_type", "task"),
+        row["title"],
+        status=row.get("status"),
+        source_location=_source_location(row),
+        attribution=row.get("_attribution"),
+    )
+
+
+def _is_project_inbox_child(row: dict) -> bool:
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return meta.get("placement_status") == "unplaced" or "项目收件箱" in (meta.get("section_markers") or []) or row.get("_attribution") == "page"
+
+
+def _is_project_unplaced_child(row: dict) -> bool:
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return meta.get("placement_status") in {"unplaced", "project_level", "needs_node"} or "项目收件箱" in (meta.get("section_markers") or []) or row.get("_attribution") == "page"
+
+
 # ─── today / dashboard v2 overrides ───────────────────────────────────────────
 
 def _inventory_today(repo: Repository, settings, journal_date: str) -> dict:
@@ -724,8 +751,14 @@ def _inventory_dashboard(repo: Repository) -> dict:
     idea_items = [_item(r["id"], "idea", r["title"], source_location=_source_location(r)) for r in ideas]
     proposal_items = _proposal_items(repo, statuses=("suggested", "accepted", "edited"))
     review_items = _open_review_items(repo)
+    project_health_items = _dashboard_project_health_items(repo, projects)
+    unplaced_items = _dashboard_unplaced_items(repo)
 
     sections = []
+    if project_health_items:
+        sections.append(_section("quality", "Projects Needing Attention", project_health_items))
+    if unplaced_items:
+        sections.append(_section("unplaced", "Unplaced Items", unplaced_items))
     if project_items:
         sections.append(_section("projects", "Active Projects", project_items))
     if active_items:
@@ -848,3 +881,33 @@ def _open_review_items(repo: Repository) -> List[dict]:
     except Exception:
         rows = []
     return [_item(row["id"], "review", row["title"] or f"Review #{row['id']}", actionable=False) for row in rows]
+
+
+def _dashboard_project_health_items(repo: Repository, projects: List[dict]) -> List[dict]:
+    items = []
+    for project in projects:
+        unplaced = len([row for row in _project_children_for_dashboard(repo, project) if _is_project_unplaced_child(row)])
+        pending = repo.conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM proposals
+            WHERE status IN ('suggested', 'accepted', 'edited')
+              AND (target_object_id=? OR payload_json LIKE ?)
+            """,
+            (project["id"], f'%"target_project_id": {project["id"]}%'),
+        ).fetchone()["c"]
+        if unplaced or int(pending):
+            items.append(_item(project["id"], "project", f"{project['title']} unplaced={unplaced} proposals={int(pending)}", source_location=_source_location(project)))
+    return items
+
+
+def _dashboard_unplaced_items(repo: Repository) -> List[dict]:
+    items = []
+    for project in repo.list_objects("project", limit=MAX_LIMIT):
+        for row in _project_children_for_dashboard(repo, project):
+            if _is_project_unplaced_child(row):
+                items.append(_child_item(row))
+    return items[:MAX_LIMIT]
+
+
+def _project_children_for_dashboard(repo: Repository, project: dict) -> List[dict]:
+    return _get_project_children(repo.conn, repo, int(project["id"]))
