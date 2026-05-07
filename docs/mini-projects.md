@@ -46,6 +46,19 @@ tm project tree 项目-韩国旅行 --format json
 tm agent project-tree 项目-韩国旅行 --format json
 ```
 
+Project Tree 默认只显示结构化 marker 节点。小任务下面的普通 TODO、普通备注和过程记录不会进入
+semantic tree，也不会显示成 `[未识别]`；它们仍保留在 raw block subtree 中。
+
+在 Human Shell 中进入 mini project 后，`show` 会展示完整 Logseq 子树：
+
+```text
+cd mini 28729
+show
+```
+
+输出包含 mini id、所属项目、source location、简洁 context，以及当前 mini block 下的全部子块。`tree`
+在 project node / mini 语境中仍用于查看结构化子节点；如果只想看内容和证据，应使用 `show`。
+
 ## Proposals
 
 本轮支持与小任务相关的 Proposal 类型：

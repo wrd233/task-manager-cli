@@ -227,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("project")
     p.add_argument("--brief", dest="detail", action="store_false", default=False)
     p.add_argument("--detail", dest="detail", action="store_true")
+    p.add_argument("--no-color", action="store_true")
     p.add_argument("--format", choices=["markdown", "json"], default="markdown")
     p.set_defaults(handler=cmd_project_tree)
 
@@ -235,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = project_sub.add_parser("tree", help="Show readonly project tree.")
     p.add_argument("project")
     p.add_argument("--detail", action="store_true")
+    p.add_argument("--no-color", action="store_true")
     p.add_argument("--format", choices=["markdown", "json"], default="markdown")
     p.set_defaults(handler=cmd_project_tree)
     p = project_sub.add_parser("tree-quality", help="Show project tree quality diagnostics.")
@@ -831,7 +833,8 @@ def cmd_project_tree(args) -> str:
     conn = _conn(settings)
     service = ProjectTreeService(conn, settings)
     tree = service.build(args.project, detail=args.detail)
-    return project_tree_json(tree) if args.format == "json" else service.render_markdown(tree, detail=args.detail)
+    color = False if getattr(args, "no_color", False) else None
+    return project_tree_json(tree) if args.format == "json" else service.render_markdown(tree, detail=args.detail, color=color)
 
 
 def cmd_project_propose_membership(args) -> str:

@@ -30,7 +30,9 @@ def loaded_shell(tmp_path):
         "    - **[资源]**\n"
         "    - **[想法]**\n"
         "    - **[小任务]** 整理打车攻略\n"
-        "        - TODO 查询 Kakao T\n",
+        "        - TODO 查询 Kakao T\n"
+        "        - 普通 mini 备注\n"
+        "        - **[资源]** Kakao T 官网\n",
         encoding="utf-8",
     )
     (journals / f"{today}.md").write_text("- TODO 今日已有任务 #inbox\n", encoding="utf-8")

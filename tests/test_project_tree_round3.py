@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from task_manager_cli.adapters.logseq.adapter import LogseqAdapter
@@ -29,6 +30,7 @@ def write_round3_graph(tmp_path):
         "    - **[工作流]** 出行交通\n"
         "        - **[小任务]** 整理打车攻略\n"
         "            - TODO 查询 Kakao T 使用方式\n"
+        "            - 普通备注：确认手机号要求\n"
         "            - **[资源]** Kakao T 官网 https://example.com\n"
         "            - **[想法]** 可以做风险评分\n"
         "            - **[注]** 用户判断\n"
@@ -83,12 +85,81 @@ def test_project_tree_read_model_markdown_json_and_agent_context(tmp_path):
     assert '"node_type": "idea"' in flat
     assert '"node_type": "result"' in flat
     assert "raw_text" not in flat
+    assert '"node_type": "unknown"' not in flat
+    assert '"node_type": "action_item"' not in flat
+    assert "查询 Kakao T 使用方式" not in flat
+    assert "普通备注：确认手机号要求" not in flat
     markdown = service.render_markdown(tree)
     assert "# 项目树：项目-旅行" in markdown
     assert "[小任务] 整理打车攻略" in markdown
+    assert "未识别" not in markdown
+    assert "TODO 查询 Kakao T" not in markdown
     agent = service.agent_view("项目-旅行", detail=True)
     assert agent["agent_context"]["omitted_by_default"]
     assert "raw_text" in json.dumps(agent, ensure_ascii=False)
+
+
+def test_raw_subtree_keeps_unrecognized_blocks_and_todo(tmp_path):
+    _graph, conn, _repo, settings = write_round3_graph(tmp_path)
+    service = ProjectTreeService(conn, settings)
+    tree = service.build("项目-旅行", detail=True)
+    flat = []
+    service._flatten(tree["tree"], flat)
+    mini = next(node for node in flat if node["node_type"] == "mini_project")
+
+    raw = service.raw_subtree_for_node("项目-旅行", mini["id"], detail=True)
+
+    assert raw is not None
+    assert "**[小任务]** 整理打车攻略" in raw
+    assert "TODO 查询 Kakao T 使用方式" in raw
+    assert "普通备注：确认手机号要求" in raw
+    assert "(line:" in raw
+
+
+def test_tree_rendering_spacing_detail_and_color(tmp_path):
+    graph = tmp_path / "graph"
+    pages = graph / "pages"
+    pages.mkdir(parents=True)
+    (pages / "项目-渲染.md").write_text(
+        "PARA:: [[PARA/Project]]\n\n"
+        "- **[目标]** A\n"
+        "- [资源] B\n"
+        "- 普通块不进 tree\n",
+        encoding="utf-8",
+    )
+    conn = connect(tmp_path / "tm.sqlite3")
+    init_db(conn)
+    repo = Repository(conn)
+    Merger(repo).ingest(LogseqAdapter(graph).scan())
+    conn.commit()
+    settings = Settings(app_dir=tmp_path / "app", database_path=tmp_path / "tm.sqlite3", logseq_graph_path=graph)
+    service = ProjectTreeService(conn, settings)
+    tree = service.build("项目-渲染", detail=True)
+
+    plain = service.render_markdown(tree, detail=False, color=False)
+    detail = service.render_markdown(tree, detail=True, color=False)
+    colored = service.render_markdown(tree, color=True)
+
+    assert "[目标] A\n\n[资源] B" in plain
+    assert "普通块不进 tree" not in plain
+    assert "id:" in detail and "type:" in detail and "line:" in detail
+    assert "\033[1;33m[目标]\033[0m" in colored
+
+
+def test_no_color_environment_disables_ansi(tmp_path, monkeypatch):
+    _graph, conn, _repo, settings = write_round3_graph(tmp_path)
+    service = ProjectTreeService(conn, settings)
+    tree = service.build("项目-旅行")
+
+    class Tty:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stdout", Tty())
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    assert "\033[1;33m" in service.render_markdown(tree)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert "\033[1;33m" not in service.render_markdown(tree)
 
 
 def test_non_project_page_without_para_is_not_project_even_with_marker(tmp_path):

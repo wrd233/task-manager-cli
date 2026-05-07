@@ -45,6 +45,6 @@ def test_project_tree_tabs_render_nested_markdown_and_json(tmp_path):
     data = json.dumps(tree, ensure_ascii=False)
 
     assert "  [工作流] 子流程" in rendered
-    assert "    [行动] TODO 孙任务" in rendered
+    assert "TODO 孙任务" not in rendered
     assert '"children": [' in data
-    assert tree["summary"]["node_count"] == 3
+    assert tree["summary"]["node_count"] == 2

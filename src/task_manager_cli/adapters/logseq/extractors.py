@@ -32,8 +32,23 @@ TASK_RE = re.compile(r"^\s*-\s*(TODO|DOING|DONE|WAITING)(?:\s+(.+)|\s*)$")
 PRIORITY_RE = re.compile(r"\[#([ABC])\]")
 IDEA_RE = re.compile(r"^(?:\*\*)?\[(想法|随想)\](?:\*\*)?(?:\s+|[:：]\s*)(.+)$")
 SEMANTIC_MARKER_RE = re.compile(
-    r"^(?:\*\*)?\[(目标|里程碑|工作流|小任务|具体事务|资源|想法|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$"
+    r"^(?:\*\*)?\[(目标|价值层|目标层|里程碑|工作流|小任务|具体事务|资源|项目收件箱|想法|反思|待澄清|注|AI注|成果|无成果)\](?:\*\*)?(?:\s+|[:：]\s*)?(.*)$"
 )
+ENGLISH_SEMANTIC_MARKER_RE = re.compile(
+    r"^(Goal|Milestone|Workflow|Tasks|Resources|Results|Ideas|Inbox|Reflection)(?:\s+|[:：]\s*)?(.*)$",
+    re.IGNORECASE,
+)
+ENGLISH_MARKER_ALIASES = {
+    "goal": "目标",
+    "milestone": "里程碑",
+    "workflow": "工作流",
+    "tasks": "小任务",
+    "resources": "资源",
+    "results": "成果",
+    "ideas": "想法",
+    "inbox": "项目收件箱",
+    "reflection": "反思",
+}
 TAG_RE = re.compile(r"(?<!\S)#([A-Za-z0-9_\-\u4e00-\u9fff/]+)")
 BLOCK_REF_RE = re.compile(r"\(\(([0-9a-fA-F-]{8,})\)\)")
 EMBED_RE = re.compile(r"\{\{embed\s+\(\(([0-9a-fA-F-]{8,})\)\)\}\}")
@@ -123,15 +138,23 @@ def idea_marker(raw: str) -> Optional[str]:
 def semantic_marker(raw: str) -> Optional[str]:
     text = strip_bullet(raw)
     match = SEMANTIC_MARKER_RE.match(text)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    english = ENGLISH_SEMANTIC_MARKER_RE.match(text)
+    if english:
+        return ENGLISH_MARKER_ALIASES.get(english.group(1).lower())
+    return None
 
 
 def semantic_marker_content(raw: str) -> Optional[str]:
     text = strip_bullet(raw)
     match = SEMANTIC_MARKER_RE.match(text)
-    if not match:
-        return None
-    return normalize_text(match.group(2).replace("**", ""))
+    if match:
+        return normalize_text(match.group(2).replace("**", ""))
+    english = ENGLISH_SEMANTIC_MARKER_RE.match(text)
+    if english:
+        return normalize_text(english.group(2).replace("**", ""))
+    return None
 
 
 def semantic_tags(raw: str) -> List[str]:

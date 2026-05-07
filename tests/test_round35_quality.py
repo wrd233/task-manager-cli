@@ -108,10 +108,7 @@ def test_round35_project_tree_quality_markdown_json_and_marker_variants(tmp_path
     assert "pytest 文档" in rendered
     flat = []
     ProjectTreeService(conn, settings)._flatten(tree["tree"], flat)
-    resource_child = next(node for node in flat if node["title"] == "这个是资源页里的示例，不应进入行动流")
-    assert resource_child["node_type"] == "resource"
-    assert resource_child["object_id"] is None
-    assert resource_child["status"] is None
+    assert not [node for node in flat if node["title"] == "这个是资源页里的示例，不应进入行动流"]
     assert not [obj for obj in repo.list_objects("project", limit=50) if obj["title"] == "普通页面"]
 
 

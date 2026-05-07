@@ -436,6 +436,7 @@ def _flatten_tree_nodes(nodes: List[dict], path: Optional[List[str]] = None) -> 
             node_id, "node", node_title, label=label, actionable=False,
             source_location=src, node_id=node_id, block_path=this_path,
             line_start=loc.get("line_start"), depth=node.get("depth", 0),
+            line_end=loc.get("line_end"),
             children=[c.get("id") for c in children],
         ))
         result.extend(_flatten_tree_nodes(children, this_path))
@@ -549,6 +550,9 @@ def _node_subtree_end(node_info: dict, flat_nodes: List[dict]) -> int:
     line_start = node_info.get("line_start", 0)
     if not line_start:
         return line_start
+    line_end = node_info.get("line_end")
+    if line_end:
+        return int(line_end)
 
     node_depth = node_info.get("depth", 0)
     node_id = node_info.get("node_id", "")

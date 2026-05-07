@@ -71,7 +71,11 @@ cd 小任务/整理打车攻略
 cd ..
 cd -
 tree
+tree detail
+tree plain
+tree raw
 show 123
+show
 open 123
 find 关键词
 ```
@@ -86,6 +90,35 @@ cd @mini/整理打车攻略
 ```
 
 路径无法解析时会输出候选，不会崩溃。
+
+## Tree And Show
+
+在 project root 下，`tree` 显示干净的 semantic project tree，只包含 `[目标]`、`[工作流]`、
+`[小任务]`、`[资源]` 等结构化 marker 节点。普通备注和普通 TODO 不会显示成 `[未识别]`，也不会污染
+`ls nodes`。
+
+在 project node context 下：
+
+```text
+cd /projects/项目-韩国旅行
+cd 整理打车攻略
+tree
+show
+```
+
+`tree` 只显示当前节点下面的 semantic subtree；如果没有结构化子节点，会提示使用 `show`。`show`
+显示当前节点的类型、id、所属项目、source location、简洁上级 context，以及该节点完整 Logseq raw subtree，
+包括普通块、TODO 子块、properties 和 marker。
+
+在 mini project 或 object context 下，省略目标的 `show` 会展示当前对象的 raw subtree：
+
+```text
+cd mini 28729
+show
+```
+
+`tree detail` 临时显示 node id / type / line / children count。`tree plain` 或 `tree no-color`
+禁用 ANSI；非 TTY 和 `NO_COLOR=1` 也会自动禁用颜色。
 
 ## Direct Actions
 

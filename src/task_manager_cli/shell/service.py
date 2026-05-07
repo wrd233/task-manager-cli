@@ -113,7 +113,7 @@ class HumanShellService:
             if command == "cd":
                 return self.cd(" ".join(args) if args else "/")
             if command == "tree":
-                return self.tree()
+                return self.tree(args)
             if command == "show":
                 return self.show(args)
             if command == "open":
@@ -361,13 +361,33 @@ class HumanShellService:
 
         return "\n".join(lines)
 
-    def tree(self) -> str:
+    def tree(self, args: Optional[List[str]] = None) -> str:
+        args = args or []
         if not self.context.project_ref:
+            if self.context.mini_ref or self.context.current_object_id:
+                if any(arg in {"raw", "show"} for arg in args):
+                    return self.show([])
+                mini_tree = self._tree_for_current_mini(args)
+                if mini_tree:
+                    return mini_tree
+                return "tree is available inside /projects/<project>. 可使用 show 查看当前对象的完整 Logseq 子树。"
             return "tree is available inside /projects/<project>."
         service = ProjectTreeService(self.conn, self.settings)
-        return service.render_markdown(service.build(self.context.project_ref, detail=self.context.detail), detail=self.context.detail)
+        detail = self.context.detail or "detail" in args
+        color = False if any(arg in {"no-color", "plain"} for arg in args) else None
+        if any(arg in {"raw", "show"} for arg in args):
+            if self.context.project_node_id:
+                rendered = service.raw_subtree_for_node(self.context.project_ref, self.context.project_node_id, detail=detail, color=color)
+                return rendered or "Raw subtree not found."
+            return "tree raw is available inside a project node context. Use show for the current raw subtree."
+        tree = service.build(self.context.project_ref, detail=detail)
+        return service.render_markdown(tree, detail=detail, color=color, root_node_id=self.context.project_node_id)
 
     def show(self, args: List[str]) -> str:
+        if not args and self.context.project_node_id and self.context.project_ref:
+            return self._show_project_node_context()
+        if not args and self.context.mini_ref:
+            args = [str(self.context.mini_ref)]
         if not args and self.context.current_object_id:
             args = [str(self.context.current_object_id)]
         if not args:
@@ -376,11 +396,18 @@ class HumanShellService:
             return json.dumps(ProposalService(self.conn, self.settings).get(self._proposal_id(args[1])), ensure_ascii=False, indent=2)
         if args[0] == "review" and len(args) > 1:
             return json.dumps(ReviewSessionService(self.conn).show(int(args[1])), ensure_ascii=False, indent=2)
+        if self.context.project_ref:
+            node_output = self._show_project_node_ref(" ".join(args))
+            if node_output:
+                return node_output
         target = self.resolve_target(" ".join(args), allow_types={"project", "task", "idea", "mini_project", "reference", "resource"})
         obj = target.get("object") if target else None
         if not obj:
             return f"Object not found: {' '.join(args)}"
-        lines = [f"#{obj['id']} {obj['object_type']} {obj.get('status') or ''} {obj['title']}", f"{obj.get('file_path')}:{obj.get('line_start') or ''}"]
+        if obj["object_type"] == "mini_project":
+            lines = self._show_mini_header(obj)
+        else:
+            lines = [f"#{obj['id']} {obj['object_type']} {obj.get('status') or ''} {obj['title']}", f"{obj.get('file_path')}:{obj.get('line_start') or ''}"]
         metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
         if metadata.get("index_status") == "updated_by_shell_writeback":
             lines.append("index: updated by shell writeback")
@@ -388,7 +415,86 @@ class HumanShellService:
         if duplicates:
             ids = ", ".join(f"#{item['id']}" for item in duplicates[:5])
             lines.append(f"duplicates: hidden same source location {ids}")
+        block = ProjectTreeService(self.conn, self.settings).find_block_for_object(obj)
+        if block:
+            lines.extend(
+                [
+                    "",
+                    "当前内容：",
+                    ProjectTreeService(self.conn, self.settings).render_raw_subtree(block, detail=self.context.detail),
+                ]
+            )
         return "\n".join(lines)
+
+    def _show_mini_header(self, obj: Dict[str, Any]) -> List[str]:
+        project = self._project_for_file(obj.get("file_path"))
+        lines = [
+            f"Mini Project #{obj['id']}",
+            f"标题：{obj['title']}",
+        ]
+        if project:
+            lines.append(f"项目：{project['title']}")
+        lines.append(f"位置：{obj.get('file_path')}:{obj.get('line_start') or ''}")
+        if project:
+            lines.extend(["", "上下文：", f"Project: {project['title']}"])
+        return lines
+
+    def _show_project_node_context(self) -> str:
+        return self._show_project_node_ref(self.context.project_node_id or "") or "Project node not found."
+
+    def _show_project_node_ref(self, node_ref: str) -> Optional[str]:
+        if not self.context.project_ref or not node_ref:
+            return None
+        service = ProjectTreeService(self.conn, self.settings)
+        tree = service.build(self.context.project_ref, detail=True)
+        node = service.find_node(tree.get("tree", []), node_ref)
+        if not node:
+            matched = self._match_project_node(self.context.project_ref, [node_ref])
+            node = service.find_node(tree.get("tree", []), matched["id"]) if matched else None
+        if not node:
+            return None
+        block = service.find_block(self.context.project_ref, node["id"])
+        if not node or not block:
+            return None
+        project = tree["project"]
+        loc = node.get("location", {})
+        label = LABEL_BY_NODE_TYPE.get(node.get("node_type"), node.get("node_type"))
+        lines = [
+            f"Project Node {node['id']}",
+            f"类型：{label}",
+            f"项目：{project['title']}",
+            f"位置：{loc.get('file_path') or project.get('file_path')}:{loc.get('line_start') or ''}",
+            "",
+            "上下文：",
+            f"Project: {project['title']}",
+        ]
+        context = service.render_block_context(block)
+        if context and context != "(root)":
+            lines.append(context)
+        lines.extend(["", "当前内容：", service.render_raw_subtree(block, detail=self.context.detail)])
+        return "\n".join(lines)
+
+    def _tree_for_current_mini(self, args: List[str]) -> Optional[str]:
+        if not self.context.mini_ref:
+            return None
+        obj = self._object(self.context.mini_ref)
+        project = self._project_for_file(obj.get("file_path"))
+        if not project:
+            return None
+        service = ProjectTreeService(self.conn, self.settings)
+        detail = self.context.detail or "detail" in args
+        color = False if any(arg in {"no-color", "plain"} for arg in args) else None
+        tree = service.build(str(project["id"]), detail=detail)
+        return service.render_markdown(tree, detail=detail, color=color, root_node_id=obj.get("source_item_id"))
+
+    def _project_for_file(self, file_path: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not file_path:
+            return None
+        rows = self.repo.list_objects("project", limit=100000)
+        for row in rows:
+            if row.get("file_path") == file_path:
+                return row
+        return None
 
     def open(self, args: List[str]) -> str:
         if not args and self.context.current_object_id:
